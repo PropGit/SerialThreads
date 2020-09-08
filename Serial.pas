@@ -20,6 +20,8 @@ type
   TDebugThread = class(TThread)
   private
     FCallerThread  : Cardinal;
+    FCommOverlap   : Overlapped;
+    FCommIOEvent   : THandle;
     function  Receive(Timeout: Int64; Connected: Boolean = True; Template: Boolean = False): Byte;
     procedure Finish(Sender: TObject);
   protected
@@ -30,24 +32,17 @@ type
 
   {Define the Propeller Serial object}
   TPropellerSerial = class(TObject)
-    FComPort       : String;
-    FCommOpen      : Boolean;
-    FCommHandle    : THandle;
     FCommDCB       : TDCB;
-    FCommOverlap   : Overlapped;
-    FCommIOEvent   : THandle;
-    FRxBuffStart   : Cardinal;
-    FRxBuffEnd     : Cardinal;
-
     procedure OpenComm;
     procedure CloseComm;
   private
     FGUIProcHandle : THandle;                    {Handle to GUI Thread (main process)}
-    FDebugThread   : TDebugThread;               {Debug thread}
-//    procedure Communicate();
+    FDebugThread   : TDebugThread;               {Handle to Debug thread}
     procedure WaitForCommunicationThread;
   public
     constructor Create; reintroduce;
+    function StartDebug: Boolean;                {Start Debug Thread}
+    procedure StopDebug;                         {Stop Debug Thread}
   end;
 
   {Global Routines}
@@ -56,7 +51,12 @@ type
 var
   CommInProgress : Boolean;                      {True = communication in process; False = communication done}
 
-  FRxBuff        : array[0..RxBuffSize-1] of byte;
+  RxBuff        : array[0..RxBuffSize-1] of byte;
+  RxHead        : Cardinal;
+  RxTail        : Cardinal;
+  ComPort       : String;
+  CommHandle    : THandle;
+
 
 
 implementation
@@ -121,11 +121,11 @@ begin
   FCommOverlap.OffsetHigh := 0;
   StartTime := GetTickCount;
   repeat                                                                                        {Loop...}
-    if FRxBuffStart = FRxBuffEnd then                                                             {Buffer empty, check Rx}
+    if RxHead = RxTail then                                                                     {Buffer empty, check Rx}
       begin
-      FRxBuffStart := 0;                                                                            {Reset start}
+//      FRxBuffStart := 0;                                                                            {Reset start}
       QueueUserAPC(@UpdateSerialStatus, FCallerThread, 0);                                          {Update GUI - Progressing (receiving bit)}
-      Read := ReadFile(FCommHandle, FRxBuff, RxBuffSize, X, @FCommOverlap);                         {Read Rx}
+      Read := ReadFile(CommHandle, RxBuff, RxBuffSize, X, @FCommOverlap);                           {Read Rx}
       if not Read then                                                                              {Data not entirely read yet?}
         begin
         if GetLastError <> ERROR_IO_PENDING then ReadError;                                           {Error, unable to read}
@@ -133,12 +133,12 @@ begin
 //        if WaitResult = WAIT_FAILED then Error(0);
         if WaitResult = WAIT_TIMEOUT then ReadError;                                                  {Error, timed-out on read of PC hardware}
         end;
-      if not GetOverlappedResult(FCommHandle, FCommOverlap, FRxBuffEnd, True) then ReadError;       {Get count of received bytes; error if necessary}
+      if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, True) then ReadError;              {Get count of received bytes; error if necessary}
       end;
-    if FRxBuffStart <> FRxBuffEnd then                                                            {Buffer has data, parse it}
+    if RxHead <> RxTail then                                                                         {Buffer has data, parse it}
       begin
-      Result := FRxBuff[FRxBuffStart];                                                              {P2 gets raw byte, P1 byte is translated to properly-formed data to 0 or 1; improper data will be > 1}
-      Inc(FRxBuffStart);
+      Result := RxBuff[RxHead];                                                                      {P2 gets raw byte, P1 byte is translated to properly-formed data to 0 or 1; improper data will be > 1}
+      Inc(RxHead);
       if not Connected then Exit;                                                                   {P2? Exit returning Result; P1 & Result properly-formed (or ill-formed but not yet connected)? exit, returning Result}
       end;
   until GetTickCount - StartTime > Timeout;                                                       {Loop back until time-out}
@@ -164,14 +164,12 @@ procedure TDebugThread.Execute;
 begin
   {Exit if I/O event handle invalid}
 //  if FCommIOEvent = 0 then Error(0);
-  OpenComm;
-
-
-
+  while not Terminated do
+   begin
+   end;
   {Update GUI - Done}
-  QueueUserAPC(@UpdateSerialStatus, FCallerThread, 0);
+//  QueueUserAPC(@UpdateSerialStatus, FCallerThread, 0);
 
-  CloseComm;
 end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -181,16 +179,10 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
 constructor TDebugThread.Create(CallingThread: Cardinal);
-{Create the communication thread and copy the binary image (if available) to download.  If the binary image is not available, only scanning and version check of the PropModel Propeller chip
- will be performed (in the .Execute method). CallingThread must be the handle of the calling thread (the GUI process).  LastPortUsed must be the ID of the last serial port successfully
- used to communication to a Propeller chip (0 if none).  This method (TCommunicationThread.Create) is the only method within this object that is executed in the context of the GUI thread.
- For this reason, this method copies the list of available serial ports and the number of excluded ports from the COM object, and also copies some serial-related preference items for use
- later by the TCommunicationThread (so no multi-thread shared-resource management is necessary).
- NOTE: The regular procedure UpdateSerialStatus (with stdcall declaration) is called via APCs from this Communication Thread to provide status updates.}
 var
   Idx : Integer;
 begin
-  {NOTE: This method is executed in the context of the calling thread (GUI thread), making it safe to access global objects (like CPrefs and the COM object) that are not thread-aware.}
+  {NOTE: This method is executed in the context of the calling thread (GUI thread), making it safe to access global objects  that are not thread-aware.}
   FreeOnTerminate := True;
   OnTerminate := Finish;
   {Store caller and last-used information}
@@ -198,7 +190,6 @@ begin
   {Create I/O Event and set overlapped structure}
   FCommIOEvent := createevent(nil, True, False, nil);
   FCommOverlap.hEvent := FCommIOEvent;
-  {Copy binary image (if available) for downloading}
   {Start thread}
   inherited Create(False);
 end;
@@ -216,7 +207,7 @@ with normal O.S. task switching).}
 
 {------------------------------------------------------------------------------}
 
-procedure TDebugThread.OpenComm;
+procedure TPropellerSerial.OpenComm;
 {Open comm port}
 const
   CommTimeouts: TCOMMTIMEOUTS =
@@ -226,12 +217,11 @@ const
      WriteTotalTimeoutMultiplier : 0;
      WriteTotalTimeoutConstant   : 0);
 begin
-  FCommOpen := False;
-  FCommHandle := CreateFile(PChar('\\.\' + FComPort), GENERIC_READ or GENERIC_WRITE, 0, nil, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, 0);
-//  if FCommHandle = INVALID_HANDLE_VALUE then Error();  {Failed to open port}
-//  if not SetupComm(FCommHandle, 0, TxBuffSize) then Error();
+  CommHandle := CreateFile(PChar('\\.\' + ComPort), GENERIC_READ or GENERIC_WRITE, 0, nil, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, 0);
+//  if CommHandle = INVALID_HANDLE_VALUE then Error();  {Failed to open port}
+//  if not SetupComm(CommHandle, 0, TxBuffSize) then Error();
   FCommDCB.DCBlength := sizeof(TDCB);
-  if GetCommState(FCommHandle, FCommDCB) then
+  if GetCommState(CommHandle, FCommDCB) then
     begin {Got serial port configuration data; adjust for our use}
     FCommDCB.BaudRate := P2BaudRate;
     FCommDCB.Parity   := NOPARITY;
@@ -241,24 +231,19 @@ begin
     end;
 //  else    {Unable to get serial port configuration data}
 //    Error(0);
-  SetCommState(FCommHandle, FCommDCB);
-  SetCommTimeouts(FCommHandle, CommTimeouts);
-  FRxBuffStart := 0;
-  FRxBuffEnd := 0;
-  FCommOpen := True;
+  SetCommState(CommHandle, FCommDCB);
+  SetCommTimeouts(CommHandle, CommTimeouts);
+  RxHead := 0;
+  RxTail := 0;
 end;
 
 {------------------------------------------------------------------------------}
 
-procedure TDebugThread.CloseComm;
+procedure TPropellerSerial.CloseComm;
 {Close comm port}
 begin
-  if FCommOpen then
-    begin
-    CancelIO(FCommHandle);                      {Cancel any pending I/O on port}
-    CloseHandle(FCommHandle);
-    FCommOpen := False;
-    end;
+  CancelIO(CommHandle);                      {Cancel any pending I/O on port}
+  CloseHandle(CommHandle);
 end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -267,15 +252,27 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
-procedure TPropellerSerial.Communicate();
-{Communicate with the PropModel Propeller chip.  If BinaryImage = nil, a Version Check is performed, otherwise, a Download is performed.
-This method launches a Communication Thread to scan available serial ports and search for a Propeller chip, then either checks the version or downloads
-an application (BinaryImage) to that Propeller chip.}
+function TPropellerSerial.StartDebug: Boolean;
+begin
+  result := True;  {Assume success}
+  try
+    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                                                                                {Abort if GUI handle unavailable}
+    FDebugThread := TDebugThread.Create(FGUIProcHandle);
+  except
+    result := False;
+  end;
+end;
 
+{------------------------------------------------------------------------------}
+
+procedure TPropellerSerial.StopDebug;
 begin
   try
-    FVerResult := 0;                                                                                                                    {Initialize version result}
-    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                                                                                {Abort if GUI handle unavailable}
+    if FDebugThread <> nil then
+      begin
+      FDebugThread.Terminate;
+      end;
+    FDebugThread := nil;
   except {Handle aborts by simply exiting}
   end;
 end;
@@ -303,6 +300,7 @@ end;
 constructor TPropellerSerial.Create;
 {Create Propeller Serial object}
 begin
+  FDebugThread := TDebugThread.Create(FGUIProcHandle);
   {Duplicate our "GUI" thread's pseudo-handle to make it usable by any of our threads}
   if not DuplicateHandle(GetCurrentProcess, GetCurrentThread, GetCurrentProcess, @FGUIProcHandle, 0, False, DUPLICATE_SAME_ACCESS) then
     FGUIProcHandle := INVALID_HANDLE_VALUE; {Failed to create process handle}
