@@ -46,7 +46,7 @@ type
   end;
 
   {Global Routines}
-  procedure UpdateSerialStatus(Value: Cardinal); stdcall;
+  procedure TerminateDebug(Value: Cardinal); stdcall;
 
 var
   CommInProgress : Boolean;                      {True = communication in process; False = communication done}
@@ -67,9 +67,9 @@ implementation
 {##############################################################################}
 {##############################################################################}
 
-procedure UpdateSerialStatus(Value: Cardinal);
-{Update serial status (identify/download progress).
- NOTE: This method is called by the TCommunicationThread via APC (Asynchronous Procedure Call) when it has a status update.}
+procedure TerminateDebug(Value: Cardinal);
+{Terminate Debug Thread).
+ NOTE: This method is called by the TDebugThread via APC (Asynchronous Procedure Call) when the GUI thread requests it.}
 begin
 end;
 
@@ -124,7 +124,6 @@ begin
     if RxHead = RxTail then                                                                     {Buffer empty, check Rx}
       begin
 //      FRxBuffStart := 0;                                                                            {Reset start}
-      QueueUserAPC(@UpdateSerialStatus, FCallerThread, 0);                                          {Update GUI - Progressing (receiving bit)}
       Read := ReadFile(CommHandle, RxBuff, RxBuffSize, X, @FCommOverlap);                           {Read Rx}
       if not Read then                                                                              {Data not entirely read yet?}
         begin
@@ -166,6 +165,7 @@ begin
 //  if FCommIOEvent = 0 then Error(0);
   while not Terminated do
    begin
+   sleepex(5000, true);
    end;
   {Update GUI - Done}
 //  QueueUserAPC(@UpdateSerialStatus, FCallerThread, 0);
@@ -262,6 +262,7 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
 function TPropellerSerial.StartDebug: Boolean;
+{Create separate "debug" thread to receive serial data and place it in buffer}
 begin
   result := True;  {Assume success}
   try
@@ -276,11 +277,13 @@ end;
 {------------------------------------------------------------------------------}
 
 procedure TPropellerSerial.StopDebug;
+{Terminate separate "debug" thread}
 begin
   try
     if FDebugThread <> nil then
       begin
       FDebugThread.Terminate;
+      QueueUserAPC(@TerminateDebug, FDebugThread.Handle, 0);
       end;
     FDebugThread := nil;
   except {Handle aborts by simply exiting}

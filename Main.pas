@@ -27,9 +27,8 @@ implementation
 
 {$R *.dfm}
 
-
-
 procedure TForm1.PortButtonClick(Sender: TObject);
+{Open/Close COM port and start/stop debug thread}
 begin
   if PortButton.Caption = 'Open Port' then
     begin
@@ -49,7 +48,6 @@ end;
 
 Initialization
   Ser := TPropellerSerial.Create;
-
 
 Finalization
   Ser.Destroy;
