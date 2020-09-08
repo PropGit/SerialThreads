@@ -33,7 +33,7 @@ type
   {Define the Propeller Serial object}
   TPropellerSerial = class(TObject)
     FCommDCB       : TDCB;
-    procedure OpenComm;
+    function OpenComm: Boolean;
     procedure CloseComm;
   private
     FGUIProcHandle : THandle;                    {Handle to GUI Thread (main process)}
@@ -207,7 +207,7 @@ with normal O.S. task switching).}
 
 {------------------------------------------------------------------------------}
 
-procedure TPropellerSerial.OpenComm;
+function TPropellerSerial.OpenComm: Boolean;
 {Open comm port}
 const
   CommTimeouts: TCOMMTIMEOUTS =
@@ -217,9 +217,10 @@ const
      WriteTotalTimeoutMultiplier : 0;
      WriteTotalTimeoutConstant   : 0);
 begin
+  result := False;
   CommHandle := CreateFile(PChar('\\.\' + ComPort), GENERIC_READ or GENERIC_WRITE, 0, nil, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, 0);
-//  if CommHandle = INVALID_HANDLE_VALUE then Error();  {Failed to open port}
-//  if not SetupComm(CommHandle, 0, TxBuffSize) then Error();
+  if CommHandle = INVALID_HANDLE_VALUE then exit;                                {Failed to open port}
+  if not SetupComm(CommHandle, 0, 4096) then begin CloseComm; exit; end;         {Failed to set port}
   FCommDCB.DCBlength := sizeof(TDCB);
   if GetCommState(CommHandle, FCommDCB) then
     begin {Got serial port configuration data; adjust for our use}
@@ -228,9 +229,12 @@ begin
     FCommDCB.ByteSize := 8;
     FCommDCB.StopBits := ONESTOPBIT;
     FCommDCB.Flags    := 0;
+    end
+  else                                                                           {Failed to get serial port configuration data}
+    begin
+    CloseComm;
+    Exit;
     end;
-//  else    {Unable to get serial port configuration data}
-//    Error(0);
   SetCommState(CommHandle, FCommDCB);
   SetCommTimeouts(CommHandle, CommTimeouts);
   RxHead := 0;

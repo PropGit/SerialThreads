@@ -34,8 +34,7 @@ begin
   if PortButton.Caption = 'Open Port' then
     begin
     ComPort := PortEdit.Text;
-    Ser.OpenComm;
-    if Ser.StartDebug then
+    if Ser.OpenComm and Ser.StartDebug then
       PortButton.Caption := 'Close Port'
     else
       Ser.CloseComm
@@ -44,7 +43,7 @@ begin
     begin
     Ser.StopDebug;
     Ser.CloseComm;
-    PortButton.Caption := 'Close Port';
+    PortButton.Caption := 'Open Port';
     end
 end;
 
