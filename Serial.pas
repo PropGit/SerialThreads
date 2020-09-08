@@ -16,7 +16,7 @@ type
   {Custom Exceptions}
   EDupHandle = class(Exception);
 
-  {Define the Propeller Debug thread}
+  {Define the Propeller Debug thread (runs independent of the GUI thread)}
   TDebugThread = class(TThread)
   private
     FCallerThread  : Cardinal;
@@ -37,8 +37,7 @@ type
     procedure CloseComm;
   private
     FGUIProcHandle : THandle;                    {Handle to GUI Thread (main process)}
-    FDebugThread   : TDebugThread;               {Handle to Debug thread}
-    procedure WaitForCommunicationThread;
+//    procedure WaitForCommunicationThread;
   public
     constructor Create; reintroduce;
     function StartDebug: Boolean;                {Start Debug Thread}
@@ -49,14 +48,12 @@ type
   procedure TerminateDebug(Value: Cardinal); stdcall;
 
 var
-  CommInProgress : Boolean;                      {True = communication in process; False = communication done}
-
   RxBuff        : array[0..RxBuffSize-1] of byte;
   RxHead        : Cardinal;
   RxTail        : Cardinal;
   ComPort       : String;
   CommHandle    : THandle;
-
+  DebugThread   : TDebugThread;               {Handle to Debug thread}
 
 
 implementation
@@ -68,9 +65,10 @@ implementation
 {##############################################################################}
 
 procedure TerminateDebug(Value: Cardinal);
-{Terminate Debug Thread).
+{Terminate Debug Thread.
  NOTE: This method is called by the TDebugThread via APC (Asynchronous Procedure Call) when the GUI thread requests it.}
 begin
+  DebugThread.Terminate;
 end;
 
 {##############################################################################}
@@ -266,9 +264,8 @@ function TPropellerSerial.StartDebug: Boolean;
 begin
   result := True;  {Assume success}
   try
-    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;               {Abort if GUI handle unavailable}
-    if FDebugThread = nil then
-      FDebugThread := TDebugThread.Create(FGUIProcHandle);
+    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                            {Abort if GUI handle unavailable}
+    if DebugThread = nil then DebugThread := TDebugThread.Create(FGUIProcHandle);   {Otherwise, create debug thread}
   except
     result := False;
   end;
@@ -280,29 +277,26 @@ procedure TPropellerSerial.StopDebug;
 {Terminate separate "debug" thread}
 begin
   try
-    if FDebugThread <> nil then
-      begin
-      FDebugThread.Terminate;
-      QueueUserAPC(@TerminateDebug, FDebugThread.Handle, 0);
-      end;
-    FDebugThread := nil;
+    {Terminate thread by queing an asynchronous procedure call to it (waking it up from its I/O wait state}
+    if DebugThread <> nil then QueueUserAPC(@TerminateDebug, DebugThread.Handle, 0);
+    DebugThread := nil;
   except {Handle aborts by simply exiting}
   end;
 end;
 
 {------------------------------------------------------------------------------}
 
-procedure TPropellerSerial.WaitForCommunicationThread;
-{Wait for communication thread to finish.  This is accomplished by sleeping in an alertable state for 1/2 the ProgressForm's increment delay period, or until the next message is received
-from the communication thread.  Once woken, the UpdateSerialStatus regular procedure is executed (if communication thread queued a message via asynchronous procedure call) and Windows messages
-are processed for this application.  This method finishes and exits when CommInProgress is false; the communication thread indicated it was done.}
-begin
-  while CommInProgress do {Wait for communication thread to finish, updating the screen as necessary along the way.}
-    begin
-    sleepex(0, True);
-    application.processmessages;
-    end;
-end;
+//procedure TPropellerSerial.WaitForCommunicationThread;
+//{Wait for communication thread to finish.  This is accomplished by sleeping in an alertable state for 1/2 the ProgressForm's increment delay period, or until the next message is received
+//from the communication thread.  Once woken, the UpdateSerialStatus regular procedure is executed (if communication thread queued a message via asynchronous procedure call) and Windows messages
+//are processed for this application.  This method finishes and exits when CommInProgress is false; the communication thread indicated it was done.}
+//begin
+//  while CommInProgress do {Wait for communication thread to finish, updating the screen as necessary along the way.}
+//    begin
+//    sleepex(0, True);
+//    application.processmessages;
+//    end;
+//end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -315,7 +309,7 @@ constructor TPropellerSerial.Create;
 begin
   {Initialize CommHandle to invalid}
   CommHandle := INVALID_HANDLE_VALUE;
-  FDebugThread := nil;
+  DebugThread := nil;
   {Duplicate our "GUI" thread's pseudo-handle to make it usable by any of our threads}
   if not DuplicateHandle(GetCurrentProcess, GetCurrentThread, GetCurrentProcess, @FGUIProcHandle, 0, False, DUPLICATE_SAME_ACCESS) then
     begin
