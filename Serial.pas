@@ -239,6 +239,7 @@ begin
   SetCommTimeouts(CommHandle, CommTimeouts);
   RxHead := 0;
   RxTail := 0;
+  result := True;
 end;
 
 {------------------------------------------------------------------------------}
@@ -246,8 +247,12 @@ end;
 procedure TPropellerSerial.CloseComm;
 {Close comm port}
 begin
-  CancelIO(CommHandle);                      {Cancel any pending I/O on port}
-  CloseHandle(CommHandle);
+  if CommHandle <> INVALID_HANDLE_VALUE then
+    begin
+    CancelIO(CommHandle);                      {Cancel any pending I/O on port}
+    CloseHandle(CommHandle);
+    CommHandle := INVALID_HANDLE_VALUE;
+    end;
 end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -260,8 +265,9 @@ function TPropellerSerial.StartDebug: Boolean;
 begin
   result := True;  {Assume success}
   try
-    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                                                                                {Abort if GUI handle unavailable}
-    FDebugThread := TDebugThread.Create(FGUIProcHandle);
+    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;               {Abort if GUI handle unavailable}
+    if FDebugThread = nil then
+      FDebugThread := TDebugThread.Create(FGUIProcHandle);
   except
     result := False;
   end;
@@ -304,12 +310,16 @@ end;
 constructor TPropellerSerial.Create;
 {Create Propeller Serial object}
 begin
-  FDebugThread := TDebugThread.Create(FGUIProcHandle);
+  {Initialize CommHandle to invalid}
+  CommHandle := INVALID_HANDLE_VALUE;
+  FDebugThread := nil;
   {Duplicate our "GUI" thread's pseudo-handle to make it usable by any of our threads}
   if not DuplicateHandle(GetCurrentProcess, GetCurrentThread, GetCurrentProcess, @FGUIProcHandle, 0, False, DUPLICATE_SAME_ACCESS) then
+    begin
     FGUIProcHandle := INVALID_HANDLE_VALUE; {Failed to create process handle}
+    raise EDupHandle.Create('Unable to create GUI handle; serial communication disabled.');
+    end;
   inherited Create;
-  if FGUIProcHandle = INVALID_HANDLE_VALUE then raise EDupHandle.Create('Unable to create GUI handle; serial communication disabled.');
 end;
 
 {------------------------------------------------------------------------------}

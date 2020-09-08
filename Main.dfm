@@ -26,7 +26,7 @@ object Form1: TForm1
     Width = 57
     Height = 21
     TabOrder = 0
-    Text = 'COM1'
+    Text = 'COM8'
   end
   object PortButton: TButton
     Left = 64
