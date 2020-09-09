@@ -44,18 +44,18 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create; reintroduce;  //(CallingThread: Cardinal); reintroduce;
-    property Alert : THandle read FEvents[GUIAlert];
+    constructor Create(Alert: THandle); reintroduce;  //(CallingThread: Cardinal); reintroduce;
   end;
 
   {Define the Propeller Serial object}
   TPropellerSerial = class(TObject)
-    FCommDCB       : TDCB;
     function OpenComm: Boolean;
     procedure CloseComm;
   private
-//    FGUIProcHandle : THandle;                    {Handle to GUI Thread (main process)}
-    FDebugThread   : TDebugThread;               {Debug thread object}
+//    FGUIProcHandle : THandle;                  {Handle to GUI Thread (main process)}
+    FCommDCB     : TDCB;
+    FDebugAlert  : THandle;
+    FDebugThread : TDebugThread;                 {Debug thread object}
 //    procedure WaitForDebugThread;
   public
     constructor Create; reintroduce;
@@ -170,7 +170,8 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
-constructor TDebugThread.Create; //(CallingThread: Cardinal);
+constructor TDebugThread.Create(Alert: THandle);
+{Alert = GUI thread's alert event object.}
 var
   Idx : Integer;
 begin
@@ -180,7 +181,7 @@ begin
 //  FCallerThread := CallingThread;
   {Create I/O and GUI Alert events (auto-reset and initially nonsignaled)}
   FEvents[IOEvent] := CreateEvent(nil, False, False, nil);
-  FEvents[GUIAlert] := CreateEvent(nil, False, False, nil);
+  FEvents[GUIAlert] := Alert;
   {Configure overlapped structure for I/O events}
   FCommOverlap.Offset := 0;
   FCommOverlap.OffsetHigh := 0;
@@ -251,36 +252,6 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
-function TPropellerSerial.StartDebug: Boolean;
-{Create separate "debug" thread to receive serial data and place it in buffer}
-begin
-  result := True;  {Assume success}
-  try
-//    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                            {Abort if GUI handle unavailable}
-    if FDebugThread = nil then FDebugThread := TDebugThread.Create;                   {Otherwise, create debug thread}
-  except
-    result := False;
-  end;
-end;
-
-{------------------------------------------------------------------------------}
-
-procedure TPropellerSerial.StopDebug;
-{Terminate separate "debug" thread}
-begin
-  try
-    {Terminate thread by flagging it than waking it up from its I/O wait state by queing an asynchronous procedure call to it}
-    if FDebugThread <> nil then
-      begin
-      FDebugThread.Terminate;           {Signal Debug Thread to terminate}
-      SetEvent(FDebugThread.Alert);     {Wake the Debug Thread so it cooperatively terminates}
-//      QueueUserAPC(@TerminateDebug, FDebugThread.Handle, 0);
-      end;
-    FDebugThread := nil;
-  except {Handle aborts by simply exiting}
-  end;
-end;
-
 //{------------------------------------------------------------------------------}
 //
 //procedure TPropellerSerial.WaitForDebugThread;
@@ -306,7 +277,9 @@ constructor TPropellerSerial.Create;
 begin
 //  {Initialize CommHandle to invalid}
 //  CommHandle := INVALID_HANDLE_VALUE;
+  {Initialize Debug Thread and Alert Event object to signal it}
   FDebugThread := nil;
+  FDebugAlert := CreateEvent(nil, False, False, nil);
 //  {Duplicate our "GUI" thread's pseudo-handle to make it usable by any of our threads}
 //  if not DuplicateHandle(GetCurrentProcess, GetCurrentThread, GetCurrentProcess, @FGUIProcHandle, 0, False, DUPLICATE_SAME_ACCESS) then
 //    begin
@@ -314,6 +287,38 @@ begin
 //    raise EDupHandle.Create('Unable to create GUI handle; serial communication disabled.');
 //    end;
   inherited Create;
+end;
+
+{------------------------------------------------------------------------------}
+
+function TPropellerSerial.StartDebug: Boolean;
+{Create separate "debug" thread to receive serial data and place it in buffer}
+begin
+  result := True;  {Assume success}
+  try
+//    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                            {Abort if GUI handle unavailable}
+    if FDebugThread = nil then FDebugThread := TDebugThread.Create(FDebugAlert);      {Create debug thread}
+  except
+    result := False;
+  end;
+end;
+
+{------------------------------------------------------------------------------}
+
+procedure TPropellerSerial.StopDebug;
+{Terminate separate "debug" thread}
+begin
+  try
+    {Terminate thread by flagging it than waking it up from its I/O wait state by queing an asynchronous procedure call to it}
+    if FDebugThread <> nil then
+      begin
+      FDebugThread.Terminate;           {Signal Debug Thread to terminate}
+      SetEvent(FDebugAlert);            {Wake the Debug Thread so it cooperatively terminates}
+//      QueueUserAPC(@TerminateDebug, FDebugThread.Handle, 0);
+      end;
+    FDebugThread := nil;
+  except {Handle aborts by simply exiting}
+  end;
 end;
 
 //{------------------------------------------------------------------------------}
