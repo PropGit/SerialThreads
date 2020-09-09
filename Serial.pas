@@ -22,7 +22,7 @@ type
     FCallerThread  : Cardinal;
     FCommOverlap   : Overlapped;
     FCommIOEvent   : THandle;
-    function  Receive(Timeout: Int64; Connected: Boolean = True; Template: Boolean = False): Byte;
+    procedure Receive;
     procedure Finish(Sender: TObject);
   protected
     procedure Execute; override;
@@ -37,6 +37,7 @@ type
     procedure CloseComm;
   private
     FGUIProcHandle : THandle;                    {Handle to GUI Thread (main process)}
+    FDebugThread   : TDebugThread;               {Debug thread object}
 //    procedure WaitForCommunicationThread;
   public
     constructor Create; reintroduce;
@@ -53,7 +54,6 @@ var
   RxTail        : Cardinal;
   ComPort       : String;
   CommHandle    : THandle;
-  DebugThread   : TDebugThread;               {Handle to Debug thread}
 
 
 implementation
@@ -65,10 +65,8 @@ implementation
 {##############################################################################}
 
 procedure TerminateDebug(Value: Cardinal);
-{Terminate Debug Thread.
- NOTE: This method is called by the TDebugThread via APC (Asynchronous Procedure Call) when the GUI thread requests it.}
+{Dummy regular procedure; serves only as a target for a wait-state-interrupting APC call to Debug Thread.}
 begin
-  DebugThread.Terminate;
 end;
 
 {##############################################################################}
@@ -88,64 +86,40 @@ the ProgressForm's state in a timely manner, while all communication can freely 
 
 {------------------------------------------------------------------------------}
 
-function TDebugThread.Receive(Timeout: Int64; Connected: Boolean = True; Template: Boolean = False): Byte;
-{Receive from Propeller.
- Propeller 1: Response is an encoded bit inside of a byte.  Optionally, we transmit a timing template if necessary.
- Propeller 2: Response is a byte.
-
- Timeout:   Maximum wait period for receiving anything.
- Connected: True: established communication already.
-            False: haven't established communication yet.
- Template:  True: [Propeller 1 only] if no response, transmit timing template.
-            False: if no response, fail.}
+procedure TDebugThread.Receive;
+{Receive serial data.}
 var
-  StartTime  : Int64;
-  Read       : Boolean; {True = data already read before ReadFile returned; False = data read in progress}
   WaitResult : Cardinal;
   X          : Cardinal; {Dummy variable for ReadFile}
 
     {----------------}
 
     procedure ReadError;
-    {Notify of read error}
     begin
-//      Error(0);
+      abort;     //!!! Need to define an error response
     end;
 
     {----------------}
 
 begin
-  FCommOverlap.Offset := 0;
-  FCommOverlap.OffsetHigh := 0;
-  StartTime := GetTickCount;
-  repeat                                                                                        {Loop...}
-    if RxHead = RxTail then                                                                     {Buffer empty, check Rx}
-      begin
-//      FRxBuffStart := 0;                                                                            {Reset start}
-      Read := ReadFile(CommHandle, RxBuff, RxBuffSize, X, @FCommOverlap);                           {Read Rx}
-      if not Read then                                                                              {Data not entirely read yet?}
-        begin
-        if GetLastError <> ERROR_IO_PENDING then ReadError;                                           {Error, unable to read}
-        WaitResult := waitforsingleobject(FCommIOEvent, 1000);                                        {Wait for completion, or 1 second, whichever comes first}
-//        if WaitResult = WAIT_FAILED then Error(0);
-        if WaitResult = WAIT_TIMEOUT then ReadError;                                                  {Error, timed-out on read of PC hardware}
-        end;
-      if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, True) then ReadError;              {Get count of received bytes; error if necessary}
+  try
+    if not ReadFile(CommHandle, RxBuff, RxBuffSize, X, @FCommOverlap) then                     {Read Rx (overlapped); true = complete}
+      begin {Read operation incomplete (or error)}
+      if GetLastError <> ERROR_IO_PENDING then ReadError;                                      {Error, unable to read from the port}
+      WaitResult := WaitForSingleObjectEx(FCommIOEvent, INFINITE, True);                       {Wait for I/O completion or alert state (ie: GUI thread contacted us)}
+      if WaitResult = WAIT_FAILED then ReadError;
       end;
-    if RxHead <> RxTail then                                                                         {Buffer has data, parse it}
-      begin
-      Result := RxBuff[RxHead];                                                                      {P2 gets raw byte, P1 byte is translated to properly-formed data to 0 or 1; improper data will be > 1}
-      Inc(RxHead);
-      if not Connected then Exit;                                                                   {P2? Exit returning Result; P1 & Result properly-formed (or ill-formed but not yet connected)? exit, returning Result}
-      end;
-  until GetTickCount - StartTime > Timeout;                                                       {Loop back until time-out}
+    if GetOverlappedResult(CommHandle, FCommOverlap, RxTail, True) then ReadError;             {Get count of received bytes; error if necessary}
+  except {Handle exceptions silently}
+  end;
 end;
 
 {------------------------------------------------------------------------------}
 
 procedure TDebugThread.Finish(Sender: TObject);
-{Clean up in preparation to terminate communication thread.}
+{Clean up in preparation to terminate thread.}
 begin
+  CancelIO(CommHandle);                      {Cancel any pending I/O on port}
 end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -163,7 +137,7 @@ begin
 //  if FCommIOEvent = 0 then Error(0);
   while not Terminated do
    begin
-   sleepex(5000, true);
+   Receive;
    end;
   {Update GUI - Done}
 //  QueueUserAPC(@UpdateSerialStatus, FCallerThread, 0);
@@ -185,8 +159,10 @@ begin
   OnTerminate := Finish;
   {Store caller and last-used information}
   FCallerThread := CallingThread;
-  {Create I/O Event and set overlapped structure}
+  {Create I/O Event and set overlapped structure for I/O events (offset 0)}
   FCommIOEvent := createevent(nil, True, False, nil);
+  FCommOverlap.Offset := 0;
+  FCommOverlap.OffsetHigh := 0;
   FCommOverlap.hEvent := FCommIOEvent;
   {Start thread}
   inherited Create(False);
@@ -247,7 +223,7 @@ procedure TPropellerSerial.CloseComm;
 begin
   if CommHandle <> INVALID_HANDLE_VALUE then
     begin
-    CancelIO(CommHandle);                      {Cancel any pending I/O on port}
+    StopDebug;
     CloseHandle(CommHandle);
     CommHandle := INVALID_HANDLE_VALUE;
     end;
@@ -265,7 +241,7 @@ begin
   result := True;  {Assume success}
   try
     if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                            {Abort if GUI handle unavailable}
-    if DebugThread = nil then DebugThread := TDebugThread.Create(FGUIProcHandle);   {Otherwise, create debug thread}
+    if FDebugThread = nil then FDebugThread := TDebugThread.Create(FGUIProcHandle); {Otherwise, create debug thread}
   except
     result := False;
   end;
@@ -277,9 +253,13 @@ procedure TPropellerSerial.StopDebug;
 {Terminate separate "debug" thread}
 begin
   try
-    {Terminate thread by queing an asynchronous procedure call to it (waking it up from its I/O wait state}
-    if DebugThread <> nil then QueueUserAPC(@TerminateDebug, DebugThread.Handle, 0);
-    DebugThread := nil;
+    {Terminate thread by flagging it than waking it up from its I/O wait state by queing an asynchronous procedure call to it}
+    if FDebugThread <> nil then
+      begin
+      FDebugThread.Terminate;
+      QueueUserAPC(@TerminateDebug, FDebugThread.Handle, 0);
+      end;
+    FDebugThread := nil;
   except {Handle aborts by simply exiting}
   end;
 end;
@@ -309,7 +289,7 @@ constructor TPropellerSerial.Create;
 begin
   {Initialize CommHandle to invalid}
   CommHandle := INVALID_HANDLE_VALUE;
-  DebugThread := nil;
+  FDebugThread := nil;
   {Duplicate our "GUI" thread's pseudo-handle to make it usable by any of our threads}
   if not DuplicateHandle(GetCurrentProcess, GetCurrentThread, GetCurrentProcess, @FGUIProcHandle, 0, False, DUPLICATE_SAME_ACCESS) then
     begin
