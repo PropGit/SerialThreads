@@ -28,6 +28,7 @@ type
     FCallerThread  : Cardinal;
     FCommOverlap   : Overlapped;
     FCommIOEvent   : THandle;
+    procedure Error(FCode: TFailedCode; ErrorCode: Cardinal);
     procedure Receive;
   protected
     procedure Execute; override;
@@ -43,7 +44,7 @@ type
   private
     FGUIProcHandle : THandle;                    {Handle to GUI Thread (main process)}
     FDebugThread   : TDebugThread;               {Debug thread object}
-    procedure WaitForDebugThread;
+//    procedure WaitForDebugThread;
   public
     constructor Create; reintroduce;
     function StartDebug: Boolean;                {Start Debug Thread}
@@ -52,7 +53,6 @@ type
 
   {Global Routines}
   procedure TerminateDebug(Value: Cardinal); stdcall;
-  procedure DebugPortError(Value: Cardinal); stdcall;
 
 var
   RxBuff        : array[0..RxBuffSize-1] of byte;
@@ -60,7 +60,7 @@ var
   RxTail        : Cardinal;
   ComPort       : String;
   CommHandle    : THandle;
-  Debugging     : Boolean;  {Indicates debug thread is running}
+//  Debugging     : Boolean;  {Indicates debug thread is running}
 
 
 implementation
@@ -74,22 +74,6 @@ implementation
 procedure TerminateDebug(Value: Cardinal);
 {Dummy regular procedure; serves only as a target for a wait-state-interrupting APC call to Debug Thread.}
 begin
-end;
-
-procedure DebugPortError(Value: Cardinal);
-{Debug thread error.
- Value is 31:30 = TFailedCode; 29:0 = last system error code.}
-var
-  FC : TFailedCode;
-  EC : String;
-begin
-  FC := TFailedCode(Value shr 30);
-  EC := inttostr(Value and $3FFFFFF);
-  case FC of
-    ecReadFailed : MessageDlg('Serial port read error.  Code: ' + EC , mtError, [mbOK], 0);
-    ecWaitFailed : MessageDlg('Serial port wait error.  Code: ' + EC, mtError, [mbOK], 0);
-    ecGIOFailed  : MessageDlg('Serial port "get data" error.  Code: ' + EC, mtError, [mbOK], 0);
-  end;
 end;
 
 {##############################################################################}
@@ -107,6 +91,20 @@ end;
 queued APC calls and executes them, as well as the normal GUI Windows messages, until the TCommunicationThread is done.  This way, the GUI thread responds to Windows messages and also updates
 the ProgressForm's state in a timely manner, while all communication can freely execute with little or no interruption (only those that are associated with normal O.S. task switching).}
 
+procedure TDebugThread.Error(FCode: TFailedCode; ErrorCode: Cardinal);
+{Terminate thread and alert user that a serial port error occurred}
+var
+  EC : String;
+begin
+  EC := inttostr(ErrorCode);
+  Terminate;
+  case FCode of
+    ecReadFailed : MessageDlg('Serial port read error.  Code: ' + EC , mtError, [mbOK], 0);
+    ecWaitFailed : MessageDlg('Serial port wait error.  Code: ' + EC, mtError, [mbOK], 0);
+    ecGIOFailed  : MessageDlg('Serial port "get data" error.  Code: ' + EC, mtError, [mbOK], 0);
+  end;
+end;
+
 {------------------------------------------------------------------------------}
 
 procedure TDebugThread.Receive;
@@ -114,16 +112,6 @@ procedure TDebugThread.Receive;
 var
   WaitResult : Cardinal;
   X          : Cardinal; {Dummy variable for ReadFile}
-
-    {----------------}
-
-    procedure Error(FType: TFailedCode);
-    begin  {Terminate thread and signal GUI that serial port error occurred}
-      Terminate;
-      QueueUserAPC(@DebugPortError, FCallerThread, (ord(FType) shl 31) + (GetLastError and $7FFFFFFF));
-    end;
-
-    {----------------}
 
 begin
   try
@@ -140,9 +128,9 @@ begin
       end;
     if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, False) then raise EGIOFailed.Create('');   {Get count of received bytes; error if necessary}
   except {Handle exceptions}
-    on EReadFailed do Error(ecReadFailed);
-    on EWaitFailed do Error(ecWaitFailed);
-    on EGIOFailed do Error(ecGIOFailed);
+    on EReadFailed do Error(ecReadFailed, GetLastError);
+    on EWaitFailed do Error(ecWaitFailed, GetLastError);
+    on EGIOFailed do Error(ecGIOFailed, GetLastError);
   end;
 end;
 
@@ -256,7 +244,6 @@ begin
   try
     if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                            {Abort if GUI handle unavailable}
     if FDebugThread = nil then FDebugThread := TDebugThread.Create(FGUIProcHandle); {Otherwise, create debug thread}
-    Debugging := True;
   except
     result := False;
   end;
@@ -273,26 +260,25 @@ begin
       begin
       FDebugThread.Terminate;
       QueueUserAPC(@TerminateDebug, FDebugThread.Handle, 0);
-      Debugging := False;
       end;
     FDebugThread := nil;
   except {Handle aborts by simply exiting}
   end;
 end;
 
-{------------------------------------------------------------------------------}
-
-procedure TPropellerSerial.WaitForDebugThread;
-{Wait for Debug Thread.
- This is accomplished by sleeping in an alertable state until the next message is received.  Once woken, the DebugThread-requested regular procedure
- is executed (it issued a QueueUserAPC()) and Windows messages are processed for this application.}
-begin
-  while Debugging do {Wait for communication thread to finish, updating the screen as necessary along the way.}
-    begin
-    sleepex(0, True);
-    application.processmessages;
-    end;
-end;
+//{------------------------------------------------------------------------------}
+//
+//procedure TPropellerSerial.WaitForDebugThread;
+//{Wait for Debug Thread.
+// This is accomplished by sleeping in an alertable state until the next message is received.  Once woken, the DebugThread-requested regular procedure
+// is executed (it issued a QueueUserAPC()) and Windows messages are processed for this application.}
+//begin
+//  while Debugging do {Wait for communication thread to finish, updating the screen as necessary along the way.}
+//    begin
+//    sleepex(0, True);
+//    application.processmessages;
+//    end;
+//end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -315,10 +301,10 @@ begin
   inherited Create;
 end;
 
-{------------------------------------------------------------------------------}
-
-Initialization
-  Debugging := False;
+//{------------------------------------------------------------------------------}
+//
+//Initialization
+//  Debugging := False;
   
 end.
 
