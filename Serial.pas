@@ -25,9 +25,9 @@ type
 
 const
   {Define indexes and IDs for events used by TDebugThread}
-  IOEvent = 0;                           {Index of I/O event object in TDebugThread's FEvents array}
-  GUIAlert = 1;                          {Index of GUI Alert event object in TDebugThread's FEvents array}
-  GUIAlerted = WAIT_OBJECT_0 + GUIAlert; {ID of GUI Alert event (returned by WaitForMultipleObjects)}
+  IOEvent = 0;                            {Index of I/O event object in TDebugThread's FEvents array}
+  GUIAlert = 1;                           {Index of GUI Alert event object in TDebugThread's FEvents array}
+  GUIAlerted = WAIT_OBJECT_0 + GUIAlert;  {ID of GUI Alert event (returned by WaitForMultipleObjects)}
 
 type
   {Define the Propeller Debug thread (runs independent of the GUI thread)}
@@ -89,21 +89,16 @@ end;
 
 {##############################################################################}
 {##############################################################################}
-{####################### TCommunicationThread Routines ########################}
+{########################### TDebugThread Routines ############################}
 {##############################################################################}
 {##############################################################################}
 
-{The TDebugThread is created by the TPropellerSerial object when it is ready to debug on the already open port.  The TPropellerSerial object executes in the context of the main GUI thread.
- The TDebugThread runs unencumbered by any GUI messages; it has no GUI components to deal with, so it performs fast retrieval of data from the serial port.
-
-'
-
- The TPropellerSerial object waits for those
-queued APC calls and executes them, as well as the normal GUI Windows messages, until the TCommunicationThread is done.  This way, the GUI thread responds to Windows messages and also updates
-the ProgressForm's state in a timely manner, while all communication can freely execute with little or no interruption (only those that are associated with normal O.S. task switching).}
+{The TDebugThread is used by the TPropellerSerial object when it is ready to debug on the already-open port.
+ The TPropellerSerial object executes in the context of the main GUI thread and the TDebugThread runs unencumbered by any GUI messages;
+ it has no GUI components to deal with, so it performs fast retrieval of data from the serial port.}
 
 procedure TDebugThread.Error(FCode: TFailedCode; ErrorCode: Cardinal);
-{Prep to terminate thread and alert user that a serial port error occurred.}
+{Prep to self terminate thread and alert GUI (user) that a serial port error occurred.}
 begin
   FFailCode := FCode;
   FErrorCode := ErrorCode;
@@ -114,8 +109,7 @@ end;
 {------------------------------------------------------------------------------}
 
 procedure TDebugThread.DisplayError;
-{Display error}
-{This method is executed in the context of the GUI thread}
+{Display error.  This method is executed in the context of the GUI thread.}
 begin
   MessageBeep(MB_ICONERROR);
   case FFailCode of
@@ -156,7 +150,8 @@ begin
       on EGUISignaled do;
     end; {try..except}
     end; {while..do}
-  CancelIO(CommHandle);                      {Cancel any pending I/O on port}
+  {Terminating thread now; cancel any pending I/O on port}
+  if CommHandle <> INVALID_HANDLE_VALUE then CancelIO(CommHandle);
 end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -167,8 +162,6 @@ end;
 
 constructor TDebugThread.Create(Alert: THandle);
 {Alert = GUI thread's alert event object.}
-var
-  Idx : Integer;
 begin
   {NOTE: This method is executed in the context of the calling thread (GUI thread), making it safe to access global objects  that are not thread-aware.}
   FreeOnTerminate := True;
