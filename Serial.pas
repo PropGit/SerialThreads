@@ -6,7 +6,7 @@ unit Serial;
 interface
 
 uses
-  Windows, SysUtils, Classes, Forms;
+  Windows, SysUtils, Classes, Forms, Dialogs;
 
 const
   P2BaudRate  = 2000000;
@@ -15,6 +15,12 @@ const
 type
   {Custom Exceptions}
   EDupHandle = class(Exception);
+  EGUISignaled = class(Exception);
+  EReadFailed = class(Exception);  {ReadFile (on serial port) failed}
+  EWaitFailed = class(Exception);  {Wait (on serial port) failed}
+  EGIOFailed = class(Exception);   {Get pending I/O (on serial port) failed}
+
+  TFailedCode = (ecReadFailed, ecWaitFailed, ecGIOFailed);
 
   {Define the Propeller Debug thread (runs independent of the GUI thread)}
   TDebugThread = class(TThread)
@@ -23,7 +29,6 @@ type
     FCommOverlap   : Overlapped;
     FCommIOEvent   : THandle;
     procedure Receive;
-    procedure Finish(Sender: TObject);
   protected
     procedure Execute; override;
   public
@@ -47,6 +52,7 @@ type
 
   {Global Routines}
   procedure TerminateDebug(Value: Cardinal); stdcall;
+  procedure DebugPortError(Value: Cardinal); stdcall;
 
 var
   RxBuff        : array[0..RxBuffSize-1] of byte;
@@ -67,6 +73,22 @@ implementation
 procedure TerminateDebug(Value: Cardinal);
 {Dummy regular procedure; serves only as a target for a wait-state-interrupting APC call to Debug Thread.}
 begin
+end;
+
+procedure DebugPortError(Value: Cardinal);
+{Debug thread error.
+ Value is 31:30 = TFailedCode; 29:0 = last system error code.}
+var
+  FC : TFailedCode;
+  EC : String;
+begin
+  FC := TFailedCode(Value shr 30);
+  EC := inttostr(Value and $3FFFFFF);
+  case FC of
+    ecReadFailed : MessageDlg('Serial port read error.  Code: ' + EC , mtError, [mbOK], 0);
+    ecWaitFailed : MessageDlg('Serial port wait error.  Code: ' + EC, mtError, [mbOK], 0);
+    ecGIOFailed  : MessageDlg('Serial port "get data" error.  Code: ' + EC, mtError, [mbOK], 0);
+  end;
 end;
 
 {##############################################################################}
@@ -94,9 +116,10 @@ var
 
     {----------------}
 
-    procedure ReadError;
-    begin
-      abort;     //!!! Need to define an error response
+    procedure Error(FType: TFailedCode);
+    begin  {Terminate thread and signal GUI that serial port error occurred}
+      Terminate;
+      QueueUserAPC(@DebugPortError, FCallerThread, (ord(FType) shl 31) + (GetLastError and $7FFFFFFF));
     end;
 
     {----------------}
@@ -105,21 +128,21 @@ begin
   try
     if not ReadFile(CommHandle, RxBuff, RxBuffSize, X, @FCommOverlap) then                     {Read Rx (overlapped); true = complete}
       begin {Read operation incomplete (or error)}
-      if GetLastError <> ERROR_IO_PENDING then ReadError;                                      {If not IO Pending, Error: unable to read from the port}
-      WaitResult := WaitForSingleObjectEx(FCommIOEvent, INFINITE, True);                       {Wait for I/O completion or alert state (ie: GUI thread contacted us)}
-      if WaitResult = WAIT_FAILED then ReadError;
+      if GetLastError <> ERROR_IO_PENDING then
+        begin                                                                                    {I/O pending}
+        WaitResult := WaitForSingleObjectEx(FCommIOEvent, INFINITE, True);                       {Wait for I/O completion or alert state (ie: GUI thread contacted us)}
+        if WaitResult = WAIT_IO_COMPLETION then raise EGUISignaled.Create('');                   {Abort if GUI signaled (woke) us; handled silently}
+        if WaitResult = WAIT_FAILED then raise EWaitFailed.Create('');
+        end
+      else
+        raise EReadFailed.Create('');                                                            {Unknown ReadFile error}
       end;
-    if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, False) then ReadError;        {Get count of received bytes; error if necessary}
-  except {Handle exceptions silently}
+    if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, False) then raise EGIOFailed.Create('');   {Get count of received bytes; error if necessary}
+  except {Handle exceptions}
+    on EReadFailed do Error(ecReadFailed);
+    on EWaitFailed do Error(ecWaitFailed);
+    on EGIOFailed do Error(ecGIOFailed);
   end;
-end;
-
-{------------------------------------------------------------------------------}
-
-procedure TDebugThread.Finish(Sender: TObject);
-{Clean up in preparation to terminate thread.}
-begin
-  CancelIO(CommHandle);                      {Cancel any pending I/O on port}
 end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -129,19 +152,10 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
 procedure TDebugThread.Execute;
-{Communication Thread's main method.  Scan all available serial ports for a Propeller chip and retrieve its version number, and optionally download application code.
- If FBinImage = nil, the thread terminates after scanning and possibly finding and retrieving a Propeller chip version number.
- If FBinImage <> nil, the thread terminates after scanning and possibly retrieving version number and downloading an application to the found Propeller chip.}
+{Debug Thread's main method.}
 begin
-  {Exit if I/O event handle invalid}
-//  if FCommIOEvent = 0 then Error(0);
-  while not Terminated do
-   begin
-   Receive;
-   end;
-  {Update GUI - Done}
-//  QueueUserAPC(@UpdateSerialStatus, FCallerThread, 0);
-
+  while not Terminated do Receive;
+  CancelIO(CommHandle);                      {Cancel any pending I/O on port}
 end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -156,7 +170,6 @@ var
 begin
   {NOTE: This method is executed in the context of the calling thread (GUI thread), making it safe to access global objects  that are not thread-aware.}
   FreeOnTerminate := True;
-  OnTerminate := Finish;
   {Store caller and last-used information}
   FCallerThread := CallingThread;
   {Create I/O Event (auto-reset and initially nonsignaled) and configure into overlapped structure for I/O events (offset 0)}
