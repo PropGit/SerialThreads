@@ -43,7 +43,7 @@ type
   private
     FGUIProcHandle : THandle;                    {Handle to GUI Thread (main process)}
     FDebugThread   : TDebugThread;               {Debug thread object}
-//    procedure WaitForCommunicationThread;
+    procedure WaitForDebugThread;
   public
     constructor Create; reintroduce;
     function StartDebug: Boolean;                {Start Debug Thread}
@@ -60,6 +60,7 @@ var
   RxTail        : Cardinal;
   ComPort       : String;
   CommHandle    : THandle;
+  Debugging     : Boolean;  {Indicates debug thread is running}
 
 
 implementation
@@ -255,6 +256,7 @@ begin
   try
     if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                            {Abort if GUI handle unavailable}
     if FDebugThread = nil then FDebugThread := TDebugThread.Create(FGUIProcHandle); {Otherwise, create debug thread}
+    Debugging := True;
   except
     result := False;
   end;
@@ -271,6 +273,7 @@ begin
       begin
       FDebugThread.Terminate;
       QueueUserAPC(@TerminateDebug, FDebugThread.Handle, 0);
+      Debugging := False;
       end;
     FDebugThread := nil;
   except {Handle aborts by simply exiting}
@@ -279,17 +282,17 @@ end;
 
 {------------------------------------------------------------------------------}
 
-//procedure TPropellerSerial.WaitForCommunicationThread;
-//{Wait for communication thread to finish.  This is accomplished by sleeping in an alertable state for 1/2 the ProgressForm's increment delay period, or until the next message is received
-//from the communication thread.  Once woken, the UpdateSerialStatus regular procedure is executed (if communication thread queued a message via asynchronous procedure call) and Windows messages
-//are processed for this application.  This method finishes and exits when CommInProgress is false; the communication thread indicated it was done.}
-//begin
-//  while CommInProgress do {Wait for communication thread to finish, updating the screen as necessary along the way.}
-//    begin
-//    sleepex(0, True);
-//    application.processmessages;
-//    end;
-//end;
+procedure TPropellerSerial.WaitForDebugThread;
+{Wait for Debug Thread.
+ This is accomplished by sleeping in an alertable state until the next message is received.  Once woken, the DebugThread-requested regular procedure
+ is executed (it issued a QueueUserAPC()) and Windows messages are processed for this application.}
+begin
+  while Debugging do {Wait for communication thread to finish, updating the screen as necessary along the way.}
+    begin
+    sleepex(0, True);
+    application.processmessages;
+    end;
+end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -314,6 +317,9 @@ end;
 
 {------------------------------------------------------------------------------}
 
+Initialization
+  Debugging := False;
+  
 end.
 
 
