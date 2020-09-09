@@ -95,12 +95,12 @@ queued APC calls and executes them, as well as the normal GUI Windows messages, 
 the ProgressForm's state in a timely manner, while all communication can freely execute with little or no interruption (only those that are associated with normal O.S. task switching).}
 
 procedure TDebugThread.Error(FCode: TFailedCode; ErrorCode: Cardinal);
-{Terminate thread and alert user that a serial port error occurred.}
+{Prep to terminate thread and alert user that a serial port error occurred.}
 begin
   FFailCode := FCode;
   FErrorCode := ErrorCode;
-  Terminate;
-  Synchronize(DisplayError);
+  Terminate;                      {Signal to self terminate}
+  Synchronize(DisplayError);      {Display Error on GUI}
 end;
 
 {------------------------------------------------------------------------------}
@@ -109,6 +109,7 @@ procedure TDebugThread.DisplayError;
 {Display error}
 {This method is executed in the context of the GUI thread}
 begin
+  MessageBeep(MB_ICONERROR);
   case FFailCode of
     ecReadFailed : MessageDlg('Serial port read error.  Code: ' + inttostr(FErrorCode) , mtError, [mbOK], 0);
     ecWaitFailed : MessageDlg('Serial port wait error.  Code: ' + inttostr(FErrorCode), mtError, [mbOK], 0);
@@ -121,22 +122,17 @@ end;
 procedure TDebugThread.Receive;
 {Receive serial data.}
 var
-  WaitResult : Cardinal;
-  X          : Cardinal; {Dummy variable for ReadFile}
+  GetData : Cardinal;    {Asynchronous Wait result (and also dummy variable for ReadFile)}
 
 begin
   try
-    if not ReadFile(CommHandle, RxBuff, RxBuffSize, X, @FCommOverlap) then                     {Read Rx (overlapped); true = complete}
+    if not ReadFile(CommHandle, RxBuff, RxBuffSize, GetData, @FCommOverlap) then                            {Start asynchronous Read; true = complete}
       begin {Read operation incomplete (or error)}
-      if GetLastError <> ERROR_IO_PENDING then
-        begin                                                                                    {I/O pending}
-        WaitResult := WaitForSingleObjectEx(FCommIOEvent, INFINITE, True);                       {Wait for I/O completion or alert state (ie: GUI thread contacted us)}
-        if WaitResult = WAIT_IO_COMPLETION then raise EGUISignaled.Create('');                   {Abort if GUI signaled (woke) us; handled silently}
-        if WaitResult = WAIT_FAILED then raise EWaitFailed.Create('');
-        end
-      else
-        raise EReadFailed.Create('');                                                            {Unknown ReadFile error}
-      end;
+      if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                  {ReadFile error?}
+      GetData := WaitForSingleObjectEx(FCommIOEvent, INFINITE, True);                                         {Else I/O pending; wait for completion or alert (ie: GUI thread contacted us)}
+      if GetData = WAIT_IO_COMPLETION then raise EGUISignaled.Create('');                                     {Abort if alerted; handled silently}
+      if GetData = WAIT_FAILED then raise EWaitFailed.Create('');                                             {Error if wait failed}
+      end;                                                                                                  {Ready!}
     if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, False) then raise EGIOFailed.Create('');   {Get count of received bytes; error if necessary}
   except {Handle exceptions}
     on EReadFailed do Error(ecReadFailed, GetLastError);
