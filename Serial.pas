@@ -105,11 +105,11 @@ begin
   try
     if not ReadFile(CommHandle, RxBuff, RxBuffSize, X, @FCommOverlap) then                     {Read Rx (overlapped); true = complete}
       begin {Read operation incomplete (or error)}
-      if GetLastError <> ERROR_IO_PENDING then ReadError;                                      {Error, unable to read from the port}
+      if GetLastError <> ERROR_IO_PENDING then ReadError;                                      {If not IO Pending, Error: unable to read from the port}
       WaitResult := WaitForSingleObjectEx(FCommIOEvent, INFINITE, True);                       {Wait for I/O completion or alert state (ie: GUI thread contacted us)}
       if WaitResult = WAIT_FAILED then ReadError;
       end;
-    if GetOverlappedResult(CommHandle, FCommOverlap, RxTail, True) then ReadError;             {Get count of received bytes; error if necessary}
+    if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, False) then ReadError;        {Get count of received bytes; error if necessary}
   except {Handle exceptions silently}
   end;
 end;
@@ -159,8 +159,8 @@ begin
   OnTerminate := Finish;
   {Store caller and last-used information}
   FCallerThread := CallingThread;
-  {Create I/O Event and set overlapped structure for I/O events (offset 0)}
-  FCommIOEvent := createevent(nil, True, False, nil);
+  {Create I/O Event (auto-reset and initially nonsignaled) and configure into overlapped structure for I/O events (offset 0)}
+  FCommIOEvent := createevent(nil, False, False, nil);
   FCommOverlap.Offset := 0;
   FCommOverlap.OffsetHigh := 0;
   FCommOverlap.hEvent := FCommIOEvent;
@@ -186,8 +186,8 @@ function TPropellerSerial.OpenComm: Boolean;
 const
   CommTimeouts: TCOMMTIMEOUTS =
     (ReadIntervalTimeout         : MAXDWORD;
-     ReadTotalTimeoutMultiplier  : 0;
-     ReadTotalTimeoutConstant    : 0;
+     ReadTotalTimeoutMultiplier  : MAXDWORD;
+     ReadTotalTimeoutConstant    : MAXDWORD-1;
      WriteTotalTimeoutMultiplier : 0;
      WriteTotalTimeoutConstant   : 0);
 begin
