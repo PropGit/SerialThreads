@@ -28,7 +28,10 @@ type
     FCallerThread  : Cardinal;
     FCommOverlap   : Overlapped;
     FCommIOEvent   : THandle;
+    FFailCode      : TFailedCode;
+    FErrorCode     : Cardinal;
     procedure Error(FCode: TFailedCode; ErrorCode: Cardinal);
+    procedure DisplayError;
     procedure Receive;
   protected
     procedure Execute; override;
@@ -92,16 +95,24 @@ queued APC calls and executes them, as well as the normal GUI Windows messages, 
 the ProgressForm's state in a timely manner, while all communication can freely execute with little or no interruption (only those that are associated with normal O.S. task switching).}
 
 procedure TDebugThread.Error(FCode: TFailedCode; ErrorCode: Cardinal);
-{Terminate thread and alert user that a serial port error occurred}
-var
-  EC : String;
+{Terminate thread and alert user that a serial port error occurred.}
 begin
-  EC := inttostr(ErrorCode);
+  FFailCode := FCode;
+  FErrorCode := ErrorCode;
   Terminate;
-  case FCode of
-    ecReadFailed : MessageDlg('Serial port read error.  Code: ' + EC , mtError, [mbOK], 0);
-    ecWaitFailed : MessageDlg('Serial port wait error.  Code: ' + EC, mtError, [mbOK], 0);
-    ecGIOFailed  : MessageDlg('Serial port "get data" error.  Code: ' + EC, mtError, [mbOK], 0);
+  Synchronize(DisplayError);
+end;
+
+{------------------------------------------------------------------------------}
+
+procedure TDebugThread.DisplayError;
+{Display error}
+{This method is executed in the context of the GUI thread}
+begin
+  case FFailCode of
+    ecReadFailed : MessageDlg('Serial port read error.  Code: ' + inttostr(FErrorCode) , mtError, [mbOK], 0);
+    ecWaitFailed : MessageDlg('Serial port wait error.  Code: ' + inttostr(FErrorCode), mtError, [mbOK], 0);
+    ecGIOFailed  : MessageDlg('Serial port "get data" error.  Code: ' + inttostr(FErrorCode), mtError, [mbOK], 0);
   end;
 end;
 
