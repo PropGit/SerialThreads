@@ -25,9 +25,11 @@ type
   {Define the Propeller Debug thread (runs independent of the GUI thread)}
   TDebugThread = class(TThread)
   private
-    FCallerThread  : Cardinal;
+//    FCallerThread  : Cardinal;
     FCommOverlap   : Overlapped;
-    FCommIOEvent   : THandle;
+    FCommIOEvent   : THandle;        {I/O event object}
+    FGUIAlert      : THandle;        {GUI Alert event object}
+    FEvents        : TWOHandleArray; {Array of event objects}
     FFailCode      : TFailedCode;
     FErrorCode     : Cardinal;
     procedure Error(FCode: TFailedCode; ErrorCode: Cardinal);
@@ -37,6 +39,7 @@ type
     procedure Execute; override;
   public
     constructor Create; reintroduce;  //(CallingThread: Cardinal); reintroduce;
+    property GUIAlert : THandle read FGUIAlert;
   end;
 
   {Define the Propeller Serial object}
@@ -129,7 +132,8 @@ begin
     if not ReadFile(CommHandle, RxBuff, RxBuffSize, GetData, @FCommOverlap) then                            {Start asynchronous Read; true = complete}
       begin {Read operation incomplete (or error)}
       if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                  {ReadFile error?}
-      GetData := WaitForSingleObjectEx(FCommIOEvent, INFINITE, True);                                         {Else I/O pending; wait for completion or alert (ie: GUI thread contacted us)}
+//      GetData := WaitForSingleObjectEx(FCommIOEvent, INFINITE, True);                                         {Else I/O pending; wait for completion or alert (ie: GUI thread contacted us)}
+      GetData := WaitForMultipleObjects(2, @FEvents, False, INFINITE);                                        {Else I/O pending; wait for completion or alert (ie: GUI thread contacted us)}
       if GetData = WAIT_IO_COMPLETION then raise EGUISignaled.Create('');                                     {Abort if alerted; handled silently}
       if GetData = WAIT_FAILED then raise EWaitFailed.Create('');                                             {Error if wait failed}
       end;                                                                                                  {Ready!}
@@ -168,11 +172,17 @@ begin
   FreeOnTerminate := True;
 //  {Store caller and last-used information}
 //  FCallerThread := CallingThread;
+  {Create GUI Alert event}
+  FGUIAlert := CreateEvent(nil, False, False, nil);
   {Create I/O Event (auto-reset and initially nonsignaled) and configure into overlapped structure for I/O events (offset 0)}
-  FCommIOEvent := createevent(nil, False, False, nil);
+  FCommIOEvent := CreateEvent(nil, False, False, nil);
   FCommOverlap.Offset := 0;
   FCommOverlap.OffsetHigh := 0;
   FCommOverlap.hEvent := FCommIOEvent;
+
+  FEvents[0] := FCommIOEvent;
+  FEvents[1] := FGUIAlert;
+
   {Start thread}
   inherited Create(False);
 end;
@@ -265,8 +275,9 @@ begin
     {Terminate thread by flagging it than waking it up from its I/O wait state by queing an asynchronous procedure call to it}
     if FDebugThread <> nil then
       begin
-      FDebugThread.Terminate;
-      QueueUserAPC(@TerminateDebug, FDebugThread.Handle, 0);
+      FDebugThread.Terminate;           {Signal Debug Thread to terminate}
+      SetEvent(FDebugThread.GUIAlert);  {Wake the Debug Thread so it cooperatively terminates}
+//      QueueUserAPC(@TerminateDebug, FDebugThread.Handle, 0);
       end;
     FDebugThread := nil;
   except {Handle aborts by simply exiting}
