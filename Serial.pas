@@ -40,7 +40,6 @@ type
     FErrorCode     : Cardinal;
     procedure Error(FCode: TFailedCode; ErrorCode: Cardinal);
     procedure DisplayError;
-    procedure Receive;
   protected
     procedure Execute; override;
   public
@@ -126,31 +125,6 @@ begin
   end;
 end;
 
-{------------------------------------------------------------------------------}
-
-procedure TDebugThread.Receive;
-{Receive serial data.}
-var
-  GetData : Cardinal;    {Asynchronous Wait result (and also dummy variable for ReadFile)}
-
-begin
-  try
-    if not ReadFile(CommHandle, RxBuff, RxBuffSize, GetData, @FCommOverlap) then                            {Start asynchronous Read; true = complete}
-      begin {Read operation incomplete (or error)}
-      if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                  {ReadFile error?}
-      GetData := WaitForMultipleObjects(2, @FEvents, False, INFINITE);                                        {Else I/O pending; wait for completion or alert (ie: GUI thread contacted us)}
-      if GetData = GUIAlerted then raise EGUISignaled.Create('');                                             {Abort if alerted; handled silently}
-      if GetData = WAIT_FAILED then raise EWaitFailed.Create('');                                             {Error if wait failed}
-      end;                                                                                                  {Ready!}
-    if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, False) then raise EGIOFailed.Create('');   {Get count of received bytes; error if necessary}
-  except {Handle exceptions}
-    on EReadFailed do Error(ecReadFailed, GetLastError);
-    on EWaitFailed do Error(ecWaitFailed, GetLastError);
-    on EGIOFailed do Error(ecGIOFailed, GetLastError);
-    on EGUISignaled do;
-  end;
-end;
-
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {ooooooooooooooooooooooooooooo Protected Routines ooooooooooooooooooooooooooooo}
@@ -158,9 +132,30 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
 procedure TDebugThread.Execute;
-{Debug Thread's main method.}
+{Receive serial data.}
+var
+  GetData : Cardinal;    {Asynchronous Wait result (and also dummy variable for ReadFile)}
+
 begin
-  while not Terminated do Receive;
+  while not Terminated do
+    begin
+    {Receive serial data asynchronously}
+    try
+      if not ReadFile(CommHandle, RxBuff, RxBuffSize, GetData, @FCommOverlap) then                            {Start asynchronous Read; true = complete}
+        begin {Read operation incomplete (or error)}
+        if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                  {ReadFile error?}
+        GetData := WaitForMultipleObjects(2, @FEvents, False, INFINITE);                                        {Else I/O pending; wait for completion or alert (ie: GUI thread contacted us)}
+        if GetData = GUIAlerted then raise EGUISignaled.Create('');                                             {Abort if alerted; handled silently}
+        if GetData = WAIT_FAILED then raise EWaitFailed.Create('');                                             {Error if wait failed}
+        end;                                                                                                  {Ready!}
+      if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, False) then raise EGIOFailed.Create('');   {Get count of received bytes; error if necessary}
+    except {Handle exceptions}
+      on EReadFailed do Error(ecReadFailed, GetLastError);
+      on EWaitFailed do Error(ecWaitFailed, GetLastError);
+      on EGIOFailed do Error(ecGIOFailed, GetLastError);
+      on EGUISignaled do;
+    end; {try..except}
+    end; {while..do}
   CancelIO(CommHandle);                      {Cancel any pending I/O on port}
 end;
 
