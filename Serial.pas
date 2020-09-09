@@ -14,7 +14,7 @@ const
 
 type
   {Custom Exceptions}
-  EDupHandle = class(Exception);
+//  EDupHandle = class(Exception);
   EGUISignaled = class(Exception);
   EReadFailed = class(Exception);  {ReadFile (on serial port) failed}
   EWaitFailed = class(Exception);  {Wait (on serial port) failed}
@@ -36,7 +36,7 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(CallingThread: Cardinal); reintroduce;
+    constructor Create; reintroduce;  //(CallingThread: Cardinal); reintroduce;
   end;
 
   {Define the Propeller Serial object}
@@ -45,7 +45,7 @@ type
     function OpenComm: Boolean;
     procedure CloseComm;
   private
-    FGUIProcHandle : THandle;                    {Handle to GUI Thread (main process)}
+//    FGUIProcHandle : THandle;                    {Handle to GUI Thread (main process)}
     FDebugThread   : TDebugThread;               {Debug thread object}
 //    procedure WaitForDebugThread;
   public
@@ -160,14 +160,14 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
-constructor TDebugThread.Create(CallingThread: Cardinal);
+constructor TDebugThread.Create; //(CallingThread: Cardinal);
 var
   Idx : Integer;
 begin
   {NOTE: This method is executed in the context of the calling thread (GUI thread), making it safe to access global objects  that are not thread-aware.}
   FreeOnTerminate := True;
-  {Store caller and last-used information}
-  FCallerThread := CallingThread;
+//  {Store caller and last-used information}
+//  FCallerThread := CallingThread;
   {Create I/O Event (auto-reset and initially nonsignaled) and configure into overlapped structure for I/O events (offset 0)}
   FCommIOEvent := createevent(nil, False, False, nil);
   FCommOverlap.Offset := 0;
@@ -249,8 +249,8 @@ function TPropellerSerial.StartDebug: Boolean;
 begin
   result := True;  {Assume success}
   try
-    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                            {Abort if GUI handle unavailable}
-    if FDebugThread = nil then FDebugThread := TDebugThread.Create(FGUIProcHandle); {Otherwise, create debug thread}
+//    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                            {Abort if GUI handle unavailable}
+    if FDebugThread = nil then FDebugThread := TDebugThread.Create;                 {Otherwise, create debug thread}
   except
     result := False;
   end;
@@ -296,15 +296,15 @@ end;
 constructor TPropellerSerial.Create;
 {Create Propeller Serial object}
 begin
-  {Initialize CommHandle to invalid}
-  CommHandle := INVALID_HANDLE_VALUE;
+//  {Initialize CommHandle to invalid}
+//  CommHandle := INVALID_HANDLE_VALUE;
   FDebugThread := nil;
-  {Duplicate our "GUI" thread's pseudo-handle to make it usable by any of our threads}
-  if not DuplicateHandle(GetCurrentProcess, GetCurrentThread, GetCurrentProcess, @FGUIProcHandle, 0, False, DUPLICATE_SAME_ACCESS) then
-    begin
-    FGUIProcHandle := INVALID_HANDLE_VALUE; {Failed to create process handle}
-    raise EDupHandle.Create('Unable to create GUI handle; serial communication disabled.');
-    end;
+//  {Duplicate our "GUI" thread's pseudo-handle to make it usable by any of our threads}
+//  if not DuplicateHandle(GetCurrentProcess, GetCurrentThread, GetCurrentProcess, @FGUIProcHandle, 0, False, DUPLICATE_SAME_ACCESS) then
+//    begin
+//    FGUIProcHandle := INVALID_HANDLE_VALUE; {Failed to create process handle}
+//    raise EDupHandle.Create('Unable to create GUI handle; serial communication disabled.');
+//    end;
   inherited Create;
 end;
 
