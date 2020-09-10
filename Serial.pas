@@ -25,9 +25,10 @@ type
 
 const
   {Define indexes and IDs for events used by TDebugThread}
-  IOEvent = 0;                                            {Index of I/O event object in TDebugThread's FEvents array}
-  TerminateRequest = 1;                                   {Index of Terminate Request event object in TDebugThread's FEvents array}
-  TerminateRequested = WAIT_OBJECT_0 + TerminateRequest;  {ID of Terminate Request event (returned by WaitForMultipleObjects)}
+  IOEvent = 0;                                  {Index of I/O event object in TDebugThread's FEvents array}
+  TerminateRequest = 1;                         {Index of Terminate Request event object in TDebugThread's FEvents array}
+  DataRcvd = WAIT_OBJECT_0 + IOEvent;           {ID of I/O Event; returned by WaitForMultipleObjects()}
+  TermReqd = WAIT_OBJECT_0 + TerminateRequest;  {ID of Terminate Request event; returned by WaitForMultipleObjects()}
 
 type
   {Define the Propeller Debug thread (runs independent of the GUI thread)}
@@ -130,8 +131,8 @@ end;
 procedure TDebugThread.Execute;
 {Asynchronously receive serial data into RxBuff; sleep when nothing available.}
 var
-  GetData            : Cardinal;    {Asynchronous Wait result (and also dummy variable for ReadFile)}
-  ReqCount, ActCount : Cardinal;    {Requested data count and actual data count}
+  AwaitData          : Cardinal;    {Asynchronous Wait result}
+  ReqCount, RcvCount : Cardinal;    {Requested data count and actual received data count}
 
 begin
   while not Terminated do
@@ -140,14 +141,16 @@ begin
       {Calc available buffer space}
       ReqCount := ifthen(RxTail > RxHead, RxTail, RxBuffSize) - RxHead;
       {Async Read from port}
-      if not ReadFile(CommHandle, RxBuff[RxHead], ReqCount, GetData, @FCommOverlap) then                      {Start asynchronous Read; true = complete}
+      if not ReadFile(CommHandle, RxBuff[RxHead], ReqCount, RcvCount, @FCommOverlap) then                                    {Start asynchronous Read; true = complete}
         begin {Read operation incomplete (or error)}
-        if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                  {ReadFile error?}
-        GetData := WaitForMultipleObjects(2, @FEvents, False, INFINITE);                                        {Else I/O pending; wait for completion or termination request}
-        if GetData = TerminateRequested then raise ETerminate.Create('');                                       {Abort if terminate request}
-        if GetData = WAIT_FAILED then raise EWaitFailed.Create('');                                             {Error if wait failed}
-        end;                                                                                                  {Ready!}
-      if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, False) then raise EGIOFailed.Create('');   {Get count of received bytes; error if necessary}
+        if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                                 {Read error? exit}
+        AwaitData := WaitForMultipleObjects(2, @FEvents, False, INFINITE);                                                     {Else, wait for pending I/O or termination request...}
+        case AwaitData of                                                                                                      {...done waiting}
+          DataRcvd : if not GetOverlappedResult(CommHandle, FCommOverlap, RcvCount, False) then raise EGIOFailed.Create('');   {Read done? Get count of received bytes; error if necessary}
+          TermReqd : raise ETerminate.Create('');                                                                              {Terminate requested? Abort}
+          else       raise EWaitFailed.Create('');                                                                             {Catch all: treat as wait failure}
+        end; {case}
+        end; {Async Read}                                                                                                    {Ready!}
     except {Handle exceptions}
       on EReadFailed do Error(ecReadFailed, GetLastError);
       on EWaitFailed do Error(ecWaitFailed, GetLastError);
