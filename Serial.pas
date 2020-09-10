@@ -15,7 +15,7 @@ const
 type
   {Custom Exceptions}
 //  EDupHandle = class(Exception);
-  EGUISignaled = class(Exception);
+  ETerminate = class(Exception);   {GUI Requested Debug Thread termination}
   EReadFailed = class(Exception);  {ReadFile (on serial port) failed}
   EWaitFailed = class(Exception);  {Wait (on serial port) failed}
   EGIOFailed = class(Exception);   {Get pending I/O (on serial port) failed}
@@ -25,9 +25,9 @@ type
 
 const
   {Define indexes and IDs for events used by TDebugThread}
-  IOEvent = 0;                            {Index of I/O event object in TDebugThread's FEvents array}
-  GUIAlert = 1;                           {Index of GUI Alert event object in TDebugThread's FEvents array}
-  GUIAlerted = WAIT_OBJECT_0 + GUIAlert;  {ID of GUI Alert event (returned by WaitForMultipleObjects)}
+  IOEvent = 0;                                            {Index of I/O event object in TDebugThread's FEvents array}
+  TerminateRequest = 1;                                   {Index of Terminate Request event object in TDebugThread's FEvents array}
+  TerminateRequested = WAIT_OBJECT_0 + TerminateRequest;  {ID of Terminate Request event (returned by WaitForMultipleObjects)}
 
 type
   {Define the Propeller Debug thread (runs independent of the GUI thread)}
@@ -43,7 +43,7 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(Alert: THandle); reintroduce;  //(CallingThread: Cardinal); reintroduce;
+    constructor Create(TermEvent: THandle); reintroduce;  //(CallingThread: Cardinal); reintroduce;
   end;
 
   {Define the Propeller Serial object}
@@ -52,9 +52,9 @@ type
     procedure CloseComm;
   private
 //    FGUIProcHandle : THandle;                  {Handle to GUI Thread (main process)}
-    FCommDCB     : TDCB;
-    FDebugAlert  : THandle;
-    FDebugThread : TDebugThread;                 {Debug thread object}
+    FCommDCB         : TDCB;                     {Serial port data structure}
+    FDebugThread     : TDebugThread;             {Debug thread object}
+    FDebugTerminate  : THandle;                  {Event to signal Debug thread termination}
 //    procedure WaitForDebugThread;
   public
     constructor Create; reintroduce;
@@ -94,16 +94,18 @@ end;
 {##############################################################################}
 
 {The TDebugThread is used by the TPropellerSerial object when it is ready to debug on the already-open port.
- The TPropellerSerial object executes in the context of the main GUI thread and the TDebugThread runs unencumbered by any GUI messages;
- it has no GUI components to deal with, so it performs fast retrieval of data from the serial port.}
+ The TPropellerSerial object executes in the context of the main GUI thread and the TDebugThread runs unencumbered
+ by Windows messages; it has no GUI components to deal with, so it performs fast retrieval of data from the serial port.}
 
 procedure TDebugThread.Error(FCode: TFailedCode; ErrorCode: Cardinal);
-{Prep to self terminate thread and alert GUI (user) that a serial port error occurred.}
+{Fatal error occured; prep to self terminate thread and alert GUI (user).}
 begin
+  {Store codes since Synchronize() disallows parameters}
   FFailCode := FCode;
   FErrorCode := ErrorCode;
-  Terminate;                      {Signal to self terminate}
-  Synchronize(DisplayError);      {Display Error on GUI}
+  {Flag to terminate then call on GUI to DisplayError}
+  Terminate;
+  Synchronize(DisplayError);
 end;
 
 {------------------------------------------------------------------------------}
@@ -126,7 +128,7 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
 procedure TDebugThread.Execute;
-{Asynchronously receive serial data into RxBuff}
+{Asynchronously receive serial data into RxBuff; sleep when nothing available.}
 var
   GetData            : Cardinal;    {Asynchronous Wait result (and also dummy variable for ReadFile)}
   ReqCount, ActCount : Cardinal;    {Requested data count and actual data count}
@@ -141,8 +143,8 @@ begin
       if not ReadFile(CommHandle, RxBuff[RxHead], ReqCount, GetData, @FCommOverlap) then                      {Start asynchronous Read; true = complete}
         begin {Read operation incomplete (or error)}
         if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                  {ReadFile error?}
-        GetData := WaitForMultipleObjects(2, @FEvents, False, INFINITE);                                        {Else I/O pending; wait for completion or alert (ie: GUI thread contacted us)}
-        if GetData = GUIAlerted then raise EGUISignaled.Create('');                                             {Abort if alerted; handled silently}
+        GetData := WaitForMultipleObjects(2, @FEvents, False, INFINITE);                                        {Else I/O pending; wait for completion or termination request}
+        if GetData = TerminateRequested then raise ETerminate.Create('');                                       {Abort if terminate request}
         if GetData = WAIT_FAILED then raise EWaitFailed.Create('');                                             {Error if wait failed}
         end;                                                                                                  {Ready!}
       if not GetOverlappedResult(CommHandle, FCommOverlap, RxTail, False) then raise EGIOFailed.Create('');   {Get count of received bytes; error if necessary}
@@ -150,7 +152,7 @@ begin
       on EReadFailed do Error(ecReadFailed, GetLastError);
       on EWaitFailed do Error(ecWaitFailed, GetLastError);
       on EGIOFailed do Error(ecGIOFailed, GetLastError);
-      on EGUISignaled do; {GUI alert; silently abort}
+      on ETerminate do Terminate; {GUI requested termination}
     end; {try..except}
     end; {while..do}
 
@@ -164,16 +166,16 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
-constructor TDebugThread.Create(Alert: THandle);
-{Alert = GUI thread's alert event object.}
+constructor TDebugThread.Create(TermEvent: THandle);
+{TermEvent = GUI thread's termination request event object.
+ This method is executed in the context of the GUI thread.}
 begin
-  {NOTE: This method is executed in the context of the calling thread (GUI thread), making it safe to access global objects  that are not thread-aware.}
   FreeOnTerminate := True;
 //  {Store caller and last-used information}
 //  FCallerThread := CallingThread;
   {Create I/O and GUI Alert events (auto-reset and initially nonsignaled)}
   FEvents[IOEvent] := CreateEvent(nil, False, False, nil);
-  FEvents[GUIAlert] := Alert;
+  FEvents[TerminateRequest] := TermEvent;
   {Configure overlapped structure for I/O events}
   FCommOverlap.Offset := 0;
   FCommOverlap.OffsetHigh := 0;
@@ -271,7 +273,7 @@ begin
 //  CommHandle := INVALID_HANDLE_VALUE;
   {Initialize Debug Thread and Alert Event object to signal it}
   FDebugThread := nil;
-  FDebugAlert := CreateEvent(nil, False, False, nil);
+  FDebugTerminate := CreateEvent(nil, False, False, nil);
 //  {Duplicate our "GUI" thread's pseudo-handle to make it usable by any of our threads}
 //  if not DuplicateHandle(GetCurrentProcess, GetCurrentThread, GetCurrentProcess, @FGUIProcHandle, 0, False, DUPLICATE_SAME_ACCESS) then
 //    begin
@@ -289,7 +291,7 @@ begin
   result := True;  {Assume success}
   try
 //    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                            {Abort if GUI handle unavailable}
-    if FDebugThread = nil then FDebugThread := TDebugThread.Create(FDebugAlert);      {Create debug thread}
+    if FDebugThread = nil then FDebugThread := TDebugThread.Create(FDebugTerminate);  {Create debug thread with handle to termination request event object}
   except
     result := False;
   end;
@@ -300,17 +302,9 @@ end;
 procedure TPropellerSerial.StopDebug;
 {Terminate separate "debug" thread}
 begin
-  try
-    {Terminate thread by flagging it than waking it up from its I/O wait state by queing an asynchronous procedure call to it}
-    if FDebugThread <> nil then
-      begin
-      FDebugThread.Terminate;           {Signal Debug Thread to terminate}
-      SetEvent(FDebugAlert);            {Wake the Debug Thread so it cooperatively terminates}
-//      QueueUserAPC(@TerminateDebug, FDebugThread.Handle, 0);
-      end;
-    FDebugThread := nil;
-  except {Handle aborts by simply exiting}
-  end;
+  {Signal Debug Thread to terminate}
+  if FDebugThread <> nil then SetEvent(FDebugTerminate);
+  FDebugThread := nil;
 end;
 
 //{------------------------------------------------------------------------------}
