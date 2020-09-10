@@ -138,11 +138,9 @@ begin
   while not Terminated do
     begin {Keep debugging; receive serial data asynchronously}
     try
-      {Calc available buffer space}
-      ReqCount := ifthen(RxTail > RxHead, RxTail, RxBuffSize) - RxHead;
-      {Async Read from port}
+      ReqCount := ifthen(RxTail > RxHead, RxTail, RxBuffSize) - RxHead;                                                      {Calc available buffer space}
       if not ReadFile(CommHandle, RxBuff[RxHead], ReqCount, RcvCount, @FCommOverlap) then                                    {Start asynchronous Read; true = complete}
-        begin {Read operation incomplete (or error)}
+        begin {Async Read pending (or error)}
         if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                                 {Read error? exit}
         AwaitData := WaitForMultipleObjects(2, @FEvents, False, INFINITE);                                                     {Else, wait for pending I/O or termination request...}
         case AwaitData of                                                                                                      {...done waiting}
@@ -150,12 +148,12 @@ begin
           TermReqd : raise ETerminate.Create('');                                                                              {Terminate requested? Abort}
           else       raise EWaitFailed.Create('');                                                                             {Catch all: treat as wait failure}
         end; {case}
-        end; {Async Read}                                                                                                    {Ready!}
+        end; {Async Read}                                                                                                    {Done!}
     except {Handle exceptions}
-      on EReadFailed do Error(ecReadFailed, GetLastError);
-      on EWaitFailed do Error(ecWaitFailed, GetLastError);
-      on EGIOFailed do Error(ecGIOFailed, GetLastError);
-      on ETerminate do Terminate; {GUI requested termination}
+      on EReadFailed do Error(ecReadFailed, GetLastError);                                                                   {Prompt user for... read fail}
+      on EWaitFailed do Error(ecWaitFailed, GetLastError);                                                                   {... wait fail}
+      on EGIOFailed do Error(ecGIOFailed, GetLastError);                                                                     {... overlapped I/O fail}
+      on ETerminate do Terminate;                                                                                            {or terminate}
     end; {try..except}
     end; {while..do}
 
