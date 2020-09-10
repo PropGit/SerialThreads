@@ -6,11 +6,11 @@ unit Serial;
 interface
 
 uses
-  Windows, SysUtils, Classes, Forms, Dialogs;
+  Windows, SysUtils, Classes, Forms, Dialogs, Math;
 
 const
   P2BaudRate  = 2000000;
-  RxBuffSize  = 4096;  {NOTE: Must always result in an even number or SetupComm in Win API will fail.}
+  RxBuffSize  = 256;  {NOTE: Must always result in an even number or SetupComm in Win API will fail.}
 
 type
   {Custom Exceptions}
@@ -126,16 +126,19 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
 procedure TDebugThread.Execute;
-{Receive serial data.}
+{Asynchronously receive serial data into RxBuff}
 var
-  GetData : Cardinal;    {Asynchronous Wait result (and also dummy variable for ReadFile)}
+  GetData            : Cardinal;    {Asynchronous Wait result (and also dummy variable for ReadFile)}
+  ReqCount, ActCount : Cardinal;    {Requested data count and actual data count}
 
 begin
   while not Terminated do
-    begin
-    {Receive serial data asynchronously}
+    begin {Keep debugging; receive serial data asynchronously}
     try
-      if not ReadFile(CommHandle, RxBuff, RxBuffSize, GetData, @FCommOverlap) then                            {Start asynchronous Read; true = complete}
+      {Calc available buffer space}
+      ReqCount := ifthen(RxTail > RxHead, RxTail, RxBuffSize) - RxHead;
+      {Async Read from port}
+      if not ReadFile(CommHandle, RxBuff[RxHead], ReqCount, GetData, @FCommOverlap) then                      {Start asynchronous Read; true = complete}
         begin {Read operation incomplete (or error)}
         if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                  {ReadFile error?}
         GetData := WaitForMultipleObjects(2, @FEvents, False, INFINITE);                                        {Else I/O pending; wait for completion or alert (ie: GUI thread contacted us)}
@@ -147,10 +150,11 @@ begin
       on EReadFailed do Error(ecReadFailed, GetLastError);
       on EWaitFailed do Error(ecWaitFailed, GetLastError);
       on EGIOFailed do Error(ecGIOFailed, GetLastError);
-      on EGUISignaled do;
+      on EGUISignaled do; {GUI alert; silently abort}
     end; {try..except}
     end; {while..do}
-  {Terminating thread now; cancel any pending I/O on port}
+
+  {Stop debugging; terminate after canceling any pending I/O on port}
   if CommHandle <> INVALID_HANDLE_VALUE then CancelIO(CommHandle);
 end;
 
