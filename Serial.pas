@@ -147,7 +147,10 @@ begin
           else       raise EWaitFailed.Create('');                                                                               {Error? treat as wait failure}
         end; {case}
         end; {Async Read}                                                                                                    {Done!}
-      RxHead := (RxHead + RcvCount) mod RxBuffSize;                                                                          {Adjust Head}
+      RxHead := RxHead + RcvCount;                                                                                           {Calc new head (raw)}
+      if RxTail + RxBuffSize < RxHead then                                                                                   {Pushing Tail?}
+        RxTail := RxHead mod RxBuffSize;                                                                                        {Adjust Tail (modulus)}
+      RxHead := RxHead mod RxBuffSize;                                                                                       {Adjust Head (modulus)}
     except {Handle exceptions}
       on EReadFailed do Error(ecReadFailed, GetLastError);                                                                   {Prompt user for... read fail}
       on EWaitFailed do Error(ecWaitFailed, GetLastError);                                                                   {... wait fail}
@@ -222,8 +225,8 @@ begin
     end;
   SetCommState(CommHandle, FCommDCB);
   SetCommTimeouts(CommHandle, CommTimeouts);
-  RxHead := 0;
-  RxTail := 0;
+  RxHead := 0;                                                                   {Head points to first empty buffer byte}
+  RxTail := 0;                                                                   {Tail points to the next filled buffer byte (unless buffer empty; RxTail = RxHead)}
   result := True;
 end;
 
