@@ -131,7 +131,6 @@ end;
 procedure TDebugThread.Execute;
 {Asynchronously receive serial data into RxBuff; sleep when nothing available.}
 var
-  AwaitData          : Cardinal;    {Asynchronous Wait result}
   ReqCount, RcvCount : Cardinal;    {Requested data count and actual received data count}
 
 begin
@@ -142,13 +141,13 @@ begin
       if not ReadFile(CommHandle, RxBuff[RxHead], ReqCount, RcvCount, @FCommOverlap) then                                    {Start asynchronous Read; true = complete}
         begin {Async Read pending (or error)}
         if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                                 {Read error? exit}
-        AwaitData := WaitForMultipleObjects(2, @FEvents, False, INFINITE);                                                     {Else, wait for pending I/O or termination request...}
-        case AwaitData of                                                                                                      {...done waiting}
-          DataRcvd : if not GetOverlappedResult(CommHandle, FCommOverlap, RcvCount, False) then raise EGIOFailed.Create('');   {Read done? Get count of received bytes; error if necessary}
-          TermReqd : raise ETerminate.Create('');                                                                              {Terminate requested? Abort}
-          else       raise EWaitFailed.Create('');                                                                             {Catch all: treat as wait failure}
+        case WaitForMultipleObjects(2, @FEvents, False, INFINITE) of                                                           {Else, wait for pending I/O or termination request...}
+          DataRcvd : if not GetOverlappedResult(CommHandle, FCommOverlap, RcvCount, False) then raise EGIOFailed.Create('');     {Read done? Get count of received bytes; error if necessary}
+          TermReqd : raise ETerminate.Create('');                                                                                {Terminate requested? Abort}
+          else       raise EWaitFailed.Create('');                                                                               {Error? treat as wait failure}
         end; {case}
         end; {Async Read}                                                                                                    {Done!}
+      RxHead := (RxHead + RcvCount) mod RxBuffSize;                                                                          {Adjust Head}
     except {Handle exceptions}
       on EReadFailed do Error(ecReadFailed, GetLastError);                                                                   {Prompt user for... read fail}
       on EWaitFailed do Error(ecWaitFailed, GetLastError);                                                                   {... wait fail}
