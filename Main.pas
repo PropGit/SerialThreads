@@ -70,10 +70,7 @@ begin
             end;
           RxMemo.Lines.Append(StrPas(PStr));
           RxTail := (RxTail + Len) mod RxBuffSize;
-          if PStr[Len-1] <> char(10) then
-            Patch := True
-          else
-            if RxMemo.Lines[RxMemo.Lines.Count-1] = '' then RxMemo.Lines.Delete(RxMemo.Lines.Count-1);
+          if PStr[Len-1] <> char(10) then Patch := True;
           StrDispose(PStr);
           end;
         Application.ProcessMessages;
