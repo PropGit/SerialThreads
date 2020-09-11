@@ -131,14 +131,12 @@ end;
 procedure TDebugThread.Execute;
 {Asynchronously receive serial data into RxBuff; sleep when nothing available.}
 var
-  ReqCount, RcvCount : Cardinal;    {Requested data count and actual received data count}
+  RcvCount : Cardinal;    {Requested data count and actual received data count}
 
 begin
   while not Terminated do
-    begin {Keep debugging; receive serial data asynchronously}
-    try
-      ReqCount := ifthen(RxTail > RxHead, RxTail, RxBuffSize) - RxHead;                                                      {Calc available buffer space}
-      if not ReadFile(CommHandle, RxBuff[RxHead], ReqCount, RcvCount, @FCommOverlap) then                                    {Start asynchronous Read; true = complete}
+    try  {Keep debugging; receive serial data asynchronously}
+      if not ReadFile(CommHandle, RxBuff[RxHead], RxBuffSize-RxHead, RcvCount, @FCommOverlap) then                           {Start asynchronous Read; true = complete}
         begin {Async Read pending (or error)}
         if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                                 {Read error? exit}
         case WaitForMultipleObjects(2, @FEvents, False, INFINITE) of                                                           {Else, wait for pending I/O or termination request...}
@@ -147,17 +145,13 @@ begin
           else       raise EWaitFailed.Create('');                                                                               {Error? treat as wait failure}
         end; {case}
         end; {Async Read}                                                                                                    {Done!}
-      RxHead := RxHead + RcvCount;                                                                                           {Calc new head (raw)}
-      if RxTail + RxBuffSize < RxHead then                                                                                   {Pushing Tail?}
-        RxTail := RxHead mod RxBuffSize;                                                                                        {Adjust Tail (modulus)}
-      RxHead := RxHead mod RxBuffSize;                                                                                       {Adjust Head (modulus)}
+      RxHead := (RxHead + RcvCount) mod RxBuffSize;                                                                            {Adjust head}
     except {Handle exceptions}
       on EReadFailed do Error(ecReadFailed, GetLastError);                                                                   {Prompt user for... read fail}
       on EWaitFailed do Error(ecWaitFailed, GetLastError);                                                                   {... wait fail}
       on EGIOFailed do Error(ecGIOFailed, GetLastError);                                                                     {... overlapped I/O fail}
       on ETerminate do Terminate;                                                                                            {or terminate}
-    end; {try..except}
-    end; {while..do}
+    end; {try..except / while..do}
 
   {Stop debugging; terminate after canceling any pending I/O on port}
   if CommHandle <> INVALID_HANDLE_VALUE then CancelIO(CommHandle);
