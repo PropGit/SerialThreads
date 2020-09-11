@@ -45,6 +45,7 @@ begin
       begin
       Debugging := True;
       PortButton.Caption := 'Close Port';
+      RxMemo.Clear;
       Patch := False;
       while Debugging do
         begin
@@ -67,10 +68,12 @@ begin
             CopyMemory(@PStr[PtLen], @RxBuff[RxTail], Len);
             PStr[PtLen+Len] := char(0);
             end;
-
           RxMemo.Lines.Append(StrPas(PStr));
           RxTail := (RxTail + Len) mod RxBuffSize;
-          Patch := PStr[Len-1] <> char(10);
+          if PStr[Len-1] <> char(10) then
+            Patch := True
+          else
+            if RxMemo.Lines[RxMemo.Lines.Count-1] = '' then RxMemo.Lines.Delete(RxMemo.Lines.Count-1);
           StrDispose(PStr);
           end;
         Application.ProcessMessages;
