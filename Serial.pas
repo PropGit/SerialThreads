@@ -134,8 +134,8 @@ var
   RcvCount : Cardinal;    {Requested data count and actual received data count}
 
 begin
-  while not Terminated do
-    try  {Keep debugging; receive serial data asynchronously}
+  while not Terminated do                                                                                                    {Until we're flagged to terminate...}
+    try                                                                                                                      {  we'll retrieve serial data as fast as possible.}
       if not ReadFile(CommHandle, RxBuff[RxHead], RxBuffSize-RxHead, RcvCount, @FCommOverlap) then                           {Start asynchronous Read; true = complete}
         begin {Async Read pending (or error)}
         if GetLastError <> ERROR_IO_PENDING then raise EReadFailed.Create('');                                                 {Read error? exit}
