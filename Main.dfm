@@ -1,7 +1,7 @@
 object Form1: TForm1
-  Left = 1699
+  Left = 1598
   Top = 135
-  Width = 217
+  Width = 318
   Height = 545
   Caption = 'Form1'
   Color = clBtnFace
@@ -11,6 +11,9 @@ object Form1: TForm1
   Font.Name = 'MS Sans Serif'
   Font.Style = []
   OldCreateOrder = False
+  DesignSize = (
+    302
+    507)
   PixelsPerInch = 96
   TextHeight = 13
   object Label1: TLabel
@@ -40,8 +43,9 @@ object Form1: TForm1
   object RxMemo: TMemo
     Left = 8
     Top = 96
-    Width = 185
+    Width = 286
     Height = 401
+    Anchors = [akLeft, akTop, akRight, akBottom]
     ScrollBars = ssVertical
     TabOrder = 2
   end
