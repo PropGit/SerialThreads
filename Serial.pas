@@ -72,7 +72,6 @@ var
   RxTail        : Cardinal;
   ComPort       : String;
   CommHandle    : THandle;
-//  Debugging     : Boolean;  {Indicates debug thread is running}
 
 
 implementation

@@ -4,7 +4,7 @@ interface
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, Serial, StdCtrls;
+  Dialogs, Serial, StdCtrls, Math;
 
 type
   TForm1 = class(TForm)
@@ -20,8 +20,9 @@ type
   end;
 
 var
-  Form1: TForm1;
-  Ser:   TPropellerSerial;
+  Form1     : TForm1;
+  Ser       : TPropellerSerial;
+  Debugging : Boolean;  {Indicates debug thread is running}
 
 implementation
 
@@ -29,17 +30,40 @@ implementation
 
 procedure TForm1.PortButtonClick(Sender: TObject);
 {Open/Close COM port and start/stop debug thread}
+var
+  Len  : Integer;
+  PStr : PChar;
+
 begin
-  if PortButton.Caption = 'Open Port' then
+  if not Debugging then
     begin
     ComPort := PortEdit.Text;
     if Ser.OpenComm and Ser.StartDebug then
-      PortButton.Caption := 'Close Port'
+      begin
+      Debugging := True;
+      PortButton.Caption := 'Close Port';
+      while Debugging do
+        begin
+        Len := ifthen(RxHead >= RxTail, RxHead, RxBuffSize) - RxTail;
+        if Len > 0 then
+          begin
+          PStr := StrAlloc(Len+1);
+          CopyMemory(PStr, @RxBuff[RxTail], Len);
+          PStr[Len+1] := char(0);
+          RxMemo.Lines.Append(StrPas(PStr));
+          RxTail := (RxTail + Len) mod RxBuffSize;
+          StrDispose(PStr);
+          end;
+        Application.ProcessMessages;
+        Sleep(10);
+        end
+      end
     else
       Ser.CloseComm
     end
   else
     begin
+    Debugging := False;
     Ser.StopDebug;
     Ser.CloseComm;
     PortButton.Caption := 'Open Port';
@@ -48,6 +72,7 @@ end;
 
 Initialization
   Ser := TPropellerSerial.Create;
+  Debugging := False;
 
 Finalization
   Ser.Destroy;
