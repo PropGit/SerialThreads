@@ -16,26 +16,41 @@ object Form1: TForm1
     507)
   PixelsPerInch = 96
   TextHeight = 13
-  object Label1: TLabel
-    Left = 56
-    Top = 8
+  object PortLabel: TLabel
+    Left = 112
+    Top = 72
     Width = 22
     Height = 13
     Caption = 'Port:'
   end
+  object BaudLabel: TLabel
+    Left = 8
+    Top = 72
+    Width = 28
+    Height = 13
+    Caption = 'Baud:'
+  end
+  object BuffSizeLabel: TLabel
+    Left = 8
+    Top = 40
+    Width = 54
+    Height = 13
+    Caption = 'Buffer Size:'
+  end
   object PortEdit: TEdit
-    Left = 88
-    Top = 5
-    Width = 57
+    Left = 138
+    Top = 69
+    Width = 47
     Height = 21
     TabOrder = 0
     Text = 'COM8'
   end
   object PortButton: TButton
-    Left = 64
-    Top = 48
+    Left = 218
+    Top = 67
     Width = 75
     Height = 25
+    Anchors = [akRight]
     Caption = 'Open Port'
     TabOrder = 1
     OnClick = PortButtonClick
@@ -48,5 +63,21 @@ object Form1: TForm1
     Anchors = [akLeft, akTop, akRight, akBottom]
     ScrollBars = ssVertical
     TabOrder = 2
+  end
+  object BaudEdit: TEdit
+    Left = 40
+    Top = 69
+    Width = 57
+    Height = 21
+    TabOrder = 3
+    Text = '2000000'
+  end
+  object BuffSizeEdit: TEdit
+    Left = 66
+    Top = 37
+    Width = 57
+    Height = 21
+    TabOrder = 4
+    Text = '256'
   end
 end

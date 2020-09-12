@@ -9,13 +9,19 @@ uses
 type
   TForm1 = class(TForm)
     PortEdit: TEdit;
-    Label1: TLabel;
+    PortLabel: TLabel;
     PortButton: TButton;
     RxMemo: TMemo;
+    BaudLabel: TLabel;
+    BaudEdit: TEdit;
+    BuffSizeLabel: TLabel;
+    BuffSizeEdit: TEdit;
+    { Event declarations }
     procedure PortButtonClick(Sender: TObject);
-    procedure ParseAllRx;
   private
-    { Private declarations }
+    { Non-Event declarations }
+    procedure ParseAllRx;
+    procedure SetControlState(Enabled: Boolean);
   public
     { Public declarations }
   end;
@@ -29,6 +35,12 @@ implementation
 
 {$R *.dfm}
 
+{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
+{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
+{oooooooooooooooooooooooooooooo Event Routines oooooooooooooooooooooooooooooooo}
+{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
+{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
+
 procedure TForm1.PortButtonClick(Sender: TObject);
 {Open/Close COM port and start/stop debug thread}
 begin
@@ -38,7 +50,7 @@ begin
     if Ser.OpenComm and Ser.StartDebug then
       begin
       Debugging := True;
-      PortButton.Caption := 'Close Port';
+      SetControlState(False);
       RxMemo.Clear;
       ParseAllRx;
       end
@@ -50,11 +62,15 @@ begin
     Debugging := False;
     Ser.StopDebug;
     Ser.CloseComm;
-    PortButton.Caption := 'Open Port';
+    SetControlState(True);
     end
 end;
 
-{------------------------------------------------------------------------------}
+{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
+{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
+{oooooooooooooooooooooooooooo Non-Event Routines oooooooooooooooooooooooooooooo}
+{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
+{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
 procedure TForm1.ParseAllRx;
 var
@@ -102,6 +118,38 @@ begin
     StrDispose(PStr);
     Lines.Destroy;
   end;
+end;
+
+{------------------------------------------------------------------------------}
+
+procedure TForm1.SetControlState(Enabled: Boolean);
+begin
+  if Enabled then
+    begin
+    BuffSizeLabel.Font.Color := clBlack;
+    BuffSizeEdit.ReadOnly := False;
+    BuffSizeEdit.Color := clWhite;
+    BaudLabel.Font.Color := clBlack;
+    BaudEdit.ReadOnly := False;
+    BaudEdit.Color := clWhite;
+    PortLabel.Font.Color := clBlack;
+    PortEdit.ReadOnly := False;
+    PortEdit.Color := clWhite;
+    PortButton.Caption := 'Open Port';
+    end
+  else
+    begin
+    BuffSizeLabel.Font.Color := clGray;
+    BuffSizeEdit.ReadOnly := True;
+    BuffSizeEdit.Color := clGray;
+    BaudLabel.Font.Color := clGray;
+    BaudEdit.ReadOnly := True;
+    BaudEdit.Color := clGray;
+    PortLabel.Font.Color := clGray;
+    PortEdit.ReadOnly := True;
+    PortEdit.Color := clGray;
+    PortButton.Caption := 'Close Port';
+    end;
 end;
 
 {------------------------------------------------------------------------------}
