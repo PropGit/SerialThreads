@@ -58,17 +58,17 @@ end;
 
 procedure TForm1.ParseAllRx;
 var
-  Len      : Integer;
-  PStr     : PChar;
-  Lines    : TStrings;
-  Patch    : Boolean;
-
-{  PtStr    : String;
-  PtLen    : Integer;}
+  Len   : Cardinal;
+  PStr  : PChar;
+  Lines : TStrings;
+  LRCh  : Char;      {Last received character}
+const
+  cEOL  = [char(13), char(10)];
 
 begin
   Lines := TStringList.Create;
-  Patch := False;
+  LRCh := char(10);
+  PStr := nil;
   try
     PStr := StrAlloc(RxBuffSize+1);
     while Debugging do
@@ -83,15 +83,15 @@ begin
         RxTail := (RxTail + Len) mod RxBuffSize;
         {Parse data}
         ExtractStrings([], [], PStr, Lines);
-        if Patch and ((PStr[0] <> char(13)) or (PStr[0] <> char(10))) and (Lines.Count > 0) then
+        if (Lines.Count > 0) and not (LRCh in cEOL) and not (PStr[0] in cEOL) then
           begin {Partial line received prior; patch previous and next together}
           RxMemo.Lines[RxMemo.Lines.Count-1] := RxMemo.Lines[RxMemo.Lines.Count-1] + Lines[0];
           Lines.Delete(0);
           end;
         RxMemo.Lines.AddStrings(Lines);
-        {Check for partial line and prep for next receive}
-        Patch := (PStr[Len-1] <> char(13)) and (PStr[Len-1] <> char(10));
         Lines.Clear;
+        {Save last character for partial-line checking}
+        LRCh := PStr[Len-1];
         end; {data available}
       Application.ProcessMessages;
       Sleep(10);
