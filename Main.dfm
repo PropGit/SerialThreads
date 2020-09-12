@@ -71,6 +71,7 @@ object Form1: TForm1
     Height = 21
     TabOrder = 3
     Text = '2000000'
+    OnExit = BaudEditExit
   end
   object BuffSizeEdit: TEdit
     Left = 66
@@ -79,5 +80,6 @@ object Form1: TForm1
     Height = 21
     TabOrder = 4
     Text = '256'
+    OnExit = BuffSizeEditExit
   end
 end

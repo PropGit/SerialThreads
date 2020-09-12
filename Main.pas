@@ -18,10 +18,13 @@ type
     BuffSizeEdit: TEdit;
     { Event declarations }
     procedure PortButtonClick(Sender: TObject);
+    procedure BaudEditExit(Sender: TObject);
+    procedure BuffSizeEditExit(Sender: TObject);
   private
     { Non-Event declarations }
     procedure ParseAllRx;
     procedure SetControlState(Enabled: Boolean);
+    function StrToInt(Str: String): Int64;
   public
     { Public declarations }
   end;
@@ -64,6 +67,20 @@ begin
     Ser.CloseComm;
     SetControlState(True);
     end
+end;
+
+{------------------------------------------------------------------------------}
+
+procedure TForm1.BaudEditExit(Sender: TObject);
+begin
+  BaudRate := StrToInt(BaudEdit.Text);
+end;
+
+{------------------------------------------------------------------------------}
+
+procedure TForm1.BuffSizeEditExit(Sender: TObject);
+begin
+  MakeRxBuffer(StrToInt(BuffSizeEdit.Text));
 end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -150,6 +167,18 @@ begin
     PortEdit.Color := clGray;
     PortButton.Caption := 'Close Port';
     end;
+end;
+
+{------------------------------------------------------------------------------}
+
+function TForm1.StrToInt(Str: String): Int64;
+{Convert String to 64-bit Integer. If integer value is preceeded by non-digit data, searches until it finds the first valid
+digit, then converts until the next invalid digit or end of string.}
+var
+  Idx   : Integer;
+begin
+  while (length(Str) > 0) and not (Str[1] in ['0'..'9', '-']) do delete(Str, 1, 1);
+  Val(Str, Result, Idx);
 end;
 
 {------------------------------------------------------------------------------}

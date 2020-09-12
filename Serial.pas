@@ -8,13 +8,8 @@ interface
 uses
   Windows, SysUtils, Classes, Forms, Dialogs, Math;
 
-const
-  P2BaudRate  = 2000000;
-  RxBuffSize  = 256;  {NOTE: Must always result in an even number or SetupComm in Win API will fail.}
-
 type
   {Custom Exceptions}
-//  EDupHandle = class(Exception);
   ETerminate = class(Exception);   {GUI Requested Debug Thread termination}
   EReadFailed = class(Exception);  {ReadFile (on serial port) failed}
   EWaitFailed = class(Exception);  {Wait (on serial port) failed}
@@ -34,7 +29,6 @@ type
   {Define the Propeller Debug thread (runs independent of the GUI thread)}
   TDebugThread = class(TThread)
   private
-//    FCallerThread  : Cardinal;
     FCommOverlap   : Overlapped;
     FEvents        : TWOHandleArray; {Array of event objects; holds I/O event and GUI Alert event objects}
     FFailCode      : TFailedCode;
@@ -44,7 +38,7 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(TermEvent: THandle); reintroduce;  //(CallingThread: Cardinal); reintroduce;
+    constructor Create(TermEvent: THandle); reintroduce;
   end;
 
   {Define the Propeller Serial object}
@@ -52,11 +46,9 @@ type
     function OpenComm: Boolean;
     procedure CloseComm;
   private
-//    FGUIProcHandle : THandle;                  {Handle to GUI Thread (main process)}
     FCommDCB         : TDCB;                     {Serial port data structure}
     FDebugThread     : TDebugThread;             {Debug thread object}
     FDebugTerminate  : THandle;                  {Event to signal Debug thread termination}
-//    procedure WaitForDebugThread;
   public
     constructor Create; reintroduce;
     function StartDebug: Boolean;                {Start Debug Thread}
@@ -64,15 +56,16 @@ type
   end;
 
   {Global Routines}
-  procedure TerminateDebug(Value: Cardinal); stdcall;
+  procedure MakeRxBuffer(Size: Cardinal);
 
 var
-  RxBuff        : array[0..RxBuffSize-1] of byte;
-  RxHead        : Cardinal;
-  RxTail        : Cardinal;
-  ComPort       : String;
-  CommHandle    : THandle;
-
+  BaudRate    : Cardinal;
+  RxBuffSize  : Cardinal;                        {NOTE: Must always result in an even number or SetupComm in Win API will fail.}
+  RxBuff      : PByteArray;                      {Size manged by ?????}
+  RxHead      : Cardinal;
+  RxTail      : Cardinal;
+  ComPort     : String;
+  CommHandle  : THandle;
 
 implementation
 
@@ -82,10 +75,16 @@ implementation
 {##############################################################################}
 {##############################################################################}
 
-procedure TerminateDebug(Value: Cardinal);
-{Dummy regular procedure; serves only as a target for a wait-state-interrupting APC call to Debug Thread.}
+procedure MakeRxBuffer(Size: Cardinal);
+{Allocate memory for Receive Buffer}
 begin
+  if RxBuff <> nil then
+    freemem(RxBuff);
+  getmem(RxBuff, Size);
 end;
+
+
+
 
 {##############################################################################}
 {##############################################################################}
@@ -180,6 +179,9 @@ begin
   inherited Create(False);
 end;
 
+
+
+
 {##############################################################################}
 {##############################################################################}
 {######################### TPropellerSerial Routines ##########################}
@@ -205,7 +207,7 @@ begin
   FCommDCB.DCBlength := sizeof(TDCB);
   if GetCommState(CommHandle, FCommDCB) then
     begin {Got serial port configuration data; adjust for our use}
-    FCommDCB.BaudRate := P2BaudRate;
+    FCommDCB.BaudRate := BaudRate;
     FCommDCB.Parity   := NOPARITY;
     FCommDCB.ByteSize := 8;
     FCommDCB.StopBits := ONESTOPBIT;
@@ -238,26 +240,6 @@ end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
-{oooooooooooooooooooooooooooo Private Routines oooooooooooooooooooooooooooooooo}
-{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
-{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
-
-//{------------------------------------------------------------------------------}
-//
-//procedure TPropellerSerial.WaitForDebugThread;
-//{Wait for Debug Thread.
-// This is accomplished by sleeping in an alertable state until the next message is received.  Once woken, the DebugThread-requested regular procedure
-// is executed (it issued a QueueUserAPC()) and Windows messages are processed for this application.}
-//begin
-//  while Debugging do {Wait for communication thread to finish, updating the screen as necessary along the way.}
-//    begin
-//    sleepex(0, True);
-//    application.processmessages;
-//    end;
-//end;
-
-{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
-{oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {ooooooooooooooooooooooooooooo Public Routines oooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
@@ -265,17 +247,13 @@ end;
 constructor TPropellerSerial.Create;
 {Create Propeller Serial object}
 begin
-//  {Initialize CommHandle to invalid}
-//  CommHandle := INVALID_HANDLE_VALUE;
+  {Set initial values}
+  BaudRate := 2000000;
+  RxBuffSize := 256;
+  MakeRxBuffer(RxBuffSize);
   {Initialize Debug Thread and Alert Event object to signal it}
   FDebugThread := nil;
   FDebugTerminate := CreateEvent(nil, False, False, nil);
-//  {Duplicate our "GUI" thread's pseudo-handle to make it usable by any of our threads}
-//  if not DuplicateHandle(GetCurrentProcess, GetCurrentThread, GetCurrentProcess, @FGUIProcHandle, 0, False, DUPLICATE_SAME_ACCESS) then
-//    begin
-//    FGUIProcHandle := INVALID_HANDLE_VALUE; {Failed to create process handle}
-//    raise EDupHandle.Create('Unable to create GUI handle; serial communication disabled.');
-//    end;
   inherited Create;
 end;
 
@@ -286,7 +264,6 @@ function TPropellerSerial.StartDebug: Boolean;
 begin
   result := True;  {Assume success}
   try
-//    if FGUIProcHandle = INVALID_HANDLE_VALUE then abort;                            {Abort if GUI handle unavailable}
     if FDebugThread = nil then FDebugThread := TDebugThread.Create(FDebugTerminate);  {Create debug thread with handle to termination request event object}
   except
     result := False;
@@ -303,10 +280,10 @@ begin
   FDebugThread := nil;
 end;
 
-//{------------------------------------------------------------------------------}
-//
-//Initialization
-//  Debugging := False;
+{------------------------------------------------------------------------------}
+
+Initialization
+  RxBuff := nil;
   
 end.
 
