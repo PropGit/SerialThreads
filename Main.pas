@@ -7,7 +7,7 @@ uses
   Dialogs, Serial, StdCtrls, Math;
 
 type
-  TPatType = (ptAlpa, ptNum, ptWSp);
+  TPatType = (ptStart, ptAlpha, ptNum, ptWhite, ptEOL);
 
   TForm1 = class(TForm)
     PortEdit: TEdit;
@@ -129,18 +129,94 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
 procedure TForm1.ParseAllRx;
-var
-  Len   : Cardinal;
-  PStr  : PChar;
-  Lines : TStrings;
-  Patch : Boolean;      {True = must patch previous and current line together}
+type
+  TCharType = (WS, EL, AL, NM);       {White Space, End of Line, ALpha, Numeric}
 const
-  EOL  = [char(13), char(10)];  {End of line characters}
+  EOL   = [char(10), char(13)];       {End of line characters}
+  {Character to Char Type.
+  (WS) White Space [0..9, 11, 12, 14..32] (includes controls), (EL) End of Line [10, 13], (NM) Numeric [48..57], and (AL) Alpha [33..47, 58..255] (includes punctuation)}
+  CtoCT : array[char] of TCharType =
+          {0   1   2   3   4   5   6   7   8   TB  LF  11  12  CR  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31}
+          (WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, EL, WS, WS, EL, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS,
+          {32  !   "   #   $   %   &   '   (   )   *   +   ,   -   .   /   0   1   2   3   4   5   6   7   8   9   :   ;   <   =   >   ?}
+           WS, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, NM, NM, NM, NM, NM, NM, NM, NM, NM, NM, AL, AL, AL, AL, AL, AL,
+          {@   A   B   C   D   E   F   G   H   I   J   K   L   M   N   O   P   Q   R   S   T   U   V   W   X   Y   Z   [   \   ]   ^   _}
+           AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL,
+          {`   a   b   c   d   e   f   g   h   i   j   k   l   m   n   o   p   q   r   s   t   u   v   w   x   y   z   123 |   125 ~   ?}
+           AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL,
+          {128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159}
+           AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL,
+          {160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191}
+           AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL,
+          {À   Á   Â   Ã   Ä   Å   Æ   Ç   È   É   Ê   Ë   Ì   Í   Î   Ï   Ð   Ñ   Ò   Ó   Ô   Õ   Ö   ×   Ø   Ù   Ú   Û   Ü   Ý   Þ   ß}
+           AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL,
+          {à   á   â   ã   ä   å   æ   ç   è   é   ê   ë   ì   í   î   ï   ð   ñ   ò   ó   ô   õ   ö   ÷   ø   ù   ú   û   ü   ý   þ   8}
+           AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL
+          );
+var
+  Len      : Cardinal;
+  PStr     : PChar;
+  Lines    : TStrings;
+  Patch    : Boolean;      {True = must patch previous and current line together}
+  PatSet   : Boolean;      {True = setting pattern by example template}
+  Idx      : Cardinal;     {Data index (for pattern matching)}
+  Sz       : Cardinal;     {Data type size (for pattern matching)}
+  PatState : TPatType;
+
+    {----------------}
+
+    procedure EmitLines;
+    {Extract and emit lines of data from PStr into RxMemo}
+    begin
+      {Parse data; extract non-blank lines}
+      ExtractStrings([], [], PStr, Lines);
+      {Handle patching of previous partial line}
+      if (Lines.Count > 0) and Patch and not (PStr[0] in EOL) then
+        begin {Partial line received prior and now; patch together}
+        RxMemo.Lines[RxMemo.Lines.Count-1] := RxMemo.Lines[RxMemo.Lines.Count-1] + Lines[0];
+        Lines.Delete(0);
+        end;
+      {Add lines to memo}
+      RxMemo.Lines.AddStrings(Lines);
+      {Partial line? Needs future patching}
+      Patch := (Lines.Count > 0) and not (PStr[Len-1] in EOL);
+      Lines.Clear;
+    end;
+
+    {----------------}
+
+    procedure ParsePattern;
+    {Parse pattern from incoming data}
+    var
+      NewState : TPatType;
+    begin
+      Idx := 0;
+      while Idx < Len do
+        begin
+        case CtoCT[PStr[Idx]] of
+          AL : NewState := ptAlpha;
+          NM : NewState := ptNum;
+          WS : NewState := ptWhite;
+          EL : NewState := ptEOL;
+        end;
+        end;
+    end;
+
+    {----------------}
+
+    procedure MatchPattern;
+    {Match template pattern to incoming data}
+    begin
+    end;
+
+    {----------------}
 
 begin
   Lines := TStringList.Create;
   Patch := False;
   PStr := nil;
+  ClearPatternList;
+  PatSet := PatMatch;
   try
     PStr := StrAlloc(RxBuffSize+1);
     while Debugging do
@@ -153,19 +229,17 @@ begin
         CopyMemory(PStr, @RxBuff[RxTail], Len);
         PStr[Len] := char(0);
         RxTail := (RxTail + Len) mod RxBuffSize;
-        {Parse data; extract non-blank lines}
-        ExtractStrings([], [], PStr, Lines);
-        {Handle patching of previous partial line}
-        if (Lines.Count > 0) and Patch and not (PStr[0] in EOL) then
-          begin {Partial line received prior and now; patch together}
-          RxMemo.Lines[RxMemo.Lines.Count-1] := RxMemo.Lines[RxMemo.Lines.Count-1] + Lines[0];
-          Lines.Delete(0);
-          end;
-        {Add lines to memo}
-        RxMemo.Lines.AddStrings(Lines);
-        {Partial line? Needs future patching}
-        Patch := (Lines.Count > 0) and not (PStr[Len-1] in EOL);
-        Lines.Clear;
+        {Parse data}
+        if not PatMatch then
+          EmitLines
+        else
+          if PatSet then
+            begin
+            ParsePattern;
+            EmitLines;
+            end
+          else
+            MatchPattern;
         end; {data available}
       Application.ProcessMessages;
       Sleep(10);
