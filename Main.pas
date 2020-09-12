@@ -7,6 +7,8 @@ uses
   Dialogs, Serial, StdCtrls, Math;
 
 type
+  TPatType = (ptAlpa, ptNum, ptWSp);
+
   TForm1 = class(TForm)
     PortEdit: TEdit;
     PortLabel: TLabel;
@@ -30,15 +32,27 @@ type
     procedure ParseAllRx;
     procedure SetControlState;
     procedure SetSkipState;
-    function StrToInt(Str: String): Int64;
+    function  StrToInt(Str: String): Int64;
+    procedure ClearPatternList;
+    procedure AddPattern(PType: TPatType; Size: Cardinal; Content: String);
   public
     { Public declarations }
+  end;
+
+  {Pattern entry (used by PatList)}
+  PPattern = ^TPattern;
+  TPattern = record
+    PType   : TPatType;
+    Size    : Cardinal;
+    Content : String;
   end;
 
 var
   Form1     : TForm1;
   Ser       : TPropellerSerial;
   Debugging : Boolean;  {Indicates debug thread is running}
+  PatMatch  : Boolean;  {Indicates pattern match (template) mode}
+  PatList   : TList;
 
 implementation
 
@@ -55,6 +69,7 @@ begin
   BuffSizeEdit.Text := IntToStr(DefaultRxBufferSize);
   BaudEdit.Text := IntToStr(DefaultBaudRate);
   PortEdit.Text := DefaultPort;
+  PatMatch := TemplateCheckbox.Checked;
 end;
 
 {------------------------------------------------------------------------------}
@@ -76,6 +91,7 @@ end;
 
 procedure TForm1.TemplateCheckBoxClick(Sender: TObject);
 begin
+  PatMatch := TemplateCheckbox.Checked;
   SetSkipState;
 end;
 
@@ -204,7 +220,7 @@ end;
 procedure TForm1.SetSkipState;
 {Enable/Display Skip control based on template checkbox and debugging state}
 begin
-  if not Debugging and TemplateCheckBox.Checked then
+  if not Debugging and PatMatch then
     begin
     SkipLabel.Font.Color := clWindowText;
     SkipEdit.ReadOnly := False;
@@ -232,9 +248,36 @@ end;
 
 {------------------------------------------------------------------------------}
 
+procedure TForm1.ClearPatternList;
+{Clear entire pattern list}
+begin
+  while PatList.Count > 0 do
+    begin
+    Dispose(PatList.Items[0]);
+    PatList.Delete(0);
+    end;
+end;
+
+{------------------------------------------------------------------------------}
+
+procedure TForm1.AddPattern(PType: TPatType; Size: Cardinal; Content: String);
+{Add (append) a new pattern to pattern list.}
+var
+  Pattern : PPattern;
+begin
+  new(Pattern);
+  Pattern.PType := PType;
+  Pattern.Size := Size;
+  Pattern.Content := Content;
+  PatList.Add(Pattern);
+end;
+
+{------------------------------------------------------------------------------}
+
 Initialization
   Ser := TPropellerSerial.Create;
   Debugging := False;
+  PatList := TList.Create;
 
 Finalization
   Ser.Destroy;
