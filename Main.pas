@@ -17,9 +17,10 @@ type
     BuffSizeLabel: TLabel;
     BuffSizeEdit: TEdit;
     { Event declarations }
-    procedure PortButtonClick(Sender: TObject);
-    procedure BaudEditExit(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
     procedure BuffSizeEditExit(Sender: TObject);
+    procedure BaudEditExit(Sender: TObject);
+    procedure PortButtonClick(Sender: TObject);
   private
     { Non-Event declarations }
     procedure ParseAllRx;
@@ -44,6 +45,30 @@ implementation
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
+procedure TForm1.FormCreate(Sender: TObject);
+begin
+  BuffSizeEdit.Text := IntToStr(DefaultRxBufferSize);
+  BaudEdit.Text := IntToStr(DefaultBaudRate);
+  PortEdit.Text := DefaultPort;
+end;
+
+{------------------------------------------------------------------------------}
+
+procedure TForm1.BuffSizeEditExit(Sender: TObject);
+begin
+  RxBuffSize := StrToInt(BuffSizeEdit.Text);
+  MakeRxBuffer;
+end;
+
+{------------------------------------------------------------------------------}
+
+procedure TForm1.BaudEditExit(Sender: TObject);
+begin
+  BaudRate := StrToInt(BaudEdit.Text);
+end;
+
+{------------------------------------------------------------------------------}
+
 procedure TForm1.PortButtonClick(Sender: TObject);
 {Open/Close COM port and start/stop debug thread}
 begin
@@ -67,21 +92,6 @@ begin
     Ser.CloseComm;
     SetControlState(True);
     end
-end;
-
-{------------------------------------------------------------------------------}
-
-procedure TForm1.BaudEditExit(Sender: TObject);
-begin
-  BaudRate := StrToInt(BaudEdit.Text);
-end;
-
-{------------------------------------------------------------------------------}
-
-procedure TForm1.BuffSizeEditExit(Sender: TObject);
-begin
-  RxBuffSize := StrToInt(BuffSizeEdit.Text);
-  MakeRxBuffer;
 end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}

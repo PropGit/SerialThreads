@@ -3,7 +3,7 @@ object Form1: TForm1
   Top = 135
   Width = 318
   Height = 545
-  Caption = 'Form1'
+  Caption = 'Serial Thread Tester'
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
   Font.Color = clWindowText
@@ -11,6 +11,7 @@ object Form1: TForm1
   Font.Name = 'MS Sans Serif'
   Font.Style = []
   OldCreateOrder = False
+  OnCreate = FormCreate
   DesignSize = (
     302
     507)
@@ -42,7 +43,7 @@ object Form1: TForm1
     Top = 69
     Width = 47
     Height = 21
-    TabOrder = 0
+    TabOrder = 3
     Text = 'COM8'
   end
   object PortButton: TButton
@@ -50,9 +51,9 @@ object Form1: TForm1
     Top = 67
     Width = 75
     Height = 25
-    Anchors = [akRight]
+    Anchors = [akTop, akRight]
     Caption = 'Open Port'
-    TabOrder = 1
+    TabOrder = 0
     OnClick = PortButtonClick
   end
   object RxMemo: TMemo
@@ -62,14 +63,14 @@ object Form1: TForm1
     Height = 401
     Anchors = [akLeft, akTop, akRight, akBottom]
     ScrollBars = ssVertical
-    TabOrder = 2
+    TabOrder = 4
   end
   object BaudEdit: TEdit
     Left = 40
     Top = 69
     Width = 57
     Height = 21
-    TabOrder = 3
+    TabOrder = 2
     Text = '2000000'
     OnExit = BaudEditExit
   end
@@ -78,7 +79,7 @@ object Form1: TForm1
     Top = 37
     Width = 57
     Height = 21
-    TabOrder = 4
+    TabOrder = 1
     Text = '256'
     OnExit = BuffSizeEditExit
   end

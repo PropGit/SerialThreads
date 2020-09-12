@@ -8,6 +8,11 @@ interface
 uses
   Windows, SysUtils, Classes, Forms, Dialogs, Math;
 
+const
+  DefaultRxBufferSize = 4096;
+  DefaultBaudRate = 2000000;
+  DefaultPort = 'COM8';
+
 type
   {Custom Exceptions}
   ETerminate = class(Exception);   {GUI Requested Debug Thread termination}
@@ -248,8 +253,8 @@ constructor TPropellerSerial.Create;
 {Create Propeller Serial object}
 begin
   {Set initial values}
-  BaudRate := 2000000;
-  RxBuffSize := 256;
+  BaudRate := DefaultBaudRate;
+  RxBuffSize := DefaultRxBufferSize;
   MakeRxBuffer;
   {Initialize Debug Thread and Alert Event object to signal it}
   FDebugThread := nil;
