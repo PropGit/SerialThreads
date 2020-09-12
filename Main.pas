@@ -61,13 +61,13 @@ var
   Len   : Cardinal;
   PStr  : PChar;
   Lines : TStrings;
-  LRCh  : Char;      {Last received character}
+  Patch : Boolean;      {True = must patch previous and current line together}
 const
-  cEOL  = [char(13), char(10)];
+  EOL  = [char(13), char(10)];  {End of line characters}
 
 begin
   Lines := TStringList.Create;
-  LRCh := char(10);
+  Patch := False;
   PStr := nil;
   try
     PStr := StrAlloc(RxBuffSize+1);
@@ -81,17 +81,19 @@ begin
         CopyMemory(PStr, @RxBuff[RxTail], Len);
         PStr[Len] := char(0);
         RxTail := (RxTail + Len) mod RxBuffSize;
-        {Parse data}
+        {Parse data; extract non-blank lines}
         ExtractStrings([], [], PStr, Lines);
-        if (Lines.Count > 0) and not (LRCh in cEOL) and not (PStr[0] in cEOL) then
-          begin {Partial line received prior; patch previous and next together}
+        {Handle patching of previous partial line}
+        if (Lines.Count > 0) and Patch and not (PStr[0] in EOL) then
+          begin {Partial line received prior and now; patch together}
           RxMemo.Lines[RxMemo.Lines.Count-1] := RxMemo.Lines[RxMemo.Lines.Count-1] + Lines[0];
           Lines.Delete(0);
           end;
+        {Add lines to memo}
         RxMemo.Lines.AddStrings(Lines);
+        {Partial line? Needs future patching}
+        Patch := (Lines.Count > 0) and not (PStr[Len-1] in EOL);
         Lines.Clear;
-        {Save last character for partial-line checking}
-        LRCh := PStr[Len-1];
         end; {data available}
       Application.ProcessMessages;
       Sleep(10);
