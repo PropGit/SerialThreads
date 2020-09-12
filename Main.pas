@@ -16,15 +16,20 @@ type
     BaudEdit: TEdit;
     BuffSizeLabel: TLabel;
     BuffSizeEdit: TEdit;
+    TemplateCheckBox: TCheckBox;
+    SkipLabel: TLabel;
+    SkipEdit: TEdit;
     { Event declarations }
     procedure FormCreate(Sender: TObject);
     procedure BuffSizeEditExit(Sender: TObject);
     procedure BaudEditExit(Sender: TObject);
+    procedure TemplateCheckBoxClick(Sender: TObject);
     procedure PortButtonClick(Sender: TObject);
   private
     { Non-Event declarations }
     procedure ParseAllRx;
-    procedure SetControlState(Enabled: Boolean);
+    procedure SetControlState;
+    procedure SetSkipState;
     function StrToInt(Str: String): Int64;
   public
     { Public declarations }
@@ -69,6 +74,13 @@ end;
 
 {------------------------------------------------------------------------------}
 
+procedure TForm1.TemplateCheckBoxClick(Sender: TObject);
+begin
+  SetSkipState;
+end;
+
+{------------------------------------------------------------------------------}
+
 procedure TForm1.PortButtonClick(Sender: TObject);
 {Open/Close COM port and start/stop debug thread}
 begin
@@ -78,7 +90,7 @@ begin
     if Ser.OpenComm and Ser.StartDebug then
       begin
       Debugging := True;
-      SetControlState(False);
+      SetControlState;
       RxMemo.Clear;
       ParseAllRx;
       end
@@ -88,9 +100,9 @@ begin
   else
     begin
     Debugging := False;
+    SetControlState;
     Ser.StopDebug;
     Ser.CloseComm;
-    SetControlState(True);
     end
 end;
 
@@ -150,33 +162,59 @@ end;
 
 {------------------------------------------------------------------------------}
 
-procedure TForm1.SetControlState(Enabled: Boolean);
+procedure TForm1.SetControlState;
+{Set enabled/disabled state of configuration controls depending on debugging status}
 begin
-  if Enabled then
-    begin
-    BuffSizeLabel.Font.Color := clBlack;
-    BuffSizeEdit.ReadOnly := False;
-    BuffSizeEdit.Color := clWhite;
-    BaudLabel.Font.Color := clBlack;
-    BaudEdit.ReadOnly := False;
-    BaudEdit.Color := clWhite;
-    PortLabel.Font.Color := clBlack;
-    PortEdit.ReadOnly := False;
-    PortEdit.Color := clWhite;
-    PortButton.Caption := 'Open Port';
-    end
-  else
+  if Debugging then
     begin
     BuffSizeLabel.Font.Color := clGray;
     BuffSizeEdit.ReadOnly := True;
-    BuffSizeEdit.Color := clGray;
+    BuffSizeEdit.Color := clBtnFace;
     BaudLabel.Font.Color := clGray;
     BaudEdit.ReadOnly := True;
-    BaudEdit.Color := clGray;
+    BaudEdit.Color := clBtnFace;
     PortLabel.Font.Color := clGray;
     PortEdit.ReadOnly := True;
-    PortEdit.Color := clGray;
+    PortEdit.Color := clBtnFace;
+    TemplateCheckBox.Enabled := False;
+    TemplateCheckBox.Font.Color := clGray;
+    SetSkipState;
     PortButton.Caption := 'Close Port';
+    end
+  else
+    begin
+    BuffSizeLabel.Font.Color := clWindowText;
+    BuffSizeEdit.ReadOnly := False;
+    BuffSizeEdit.Color := clWhite;
+    BaudLabel.Font.Color := clWindowText;
+    BaudEdit.ReadOnly := False;
+    BaudEdit.Color := clWhite;
+    PortLabel.Font.Color := clWindowText;
+    PortEdit.ReadOnly := False;
+    PortEdit.Color := clWhite;
+    TemplateCheckBox.Enabled := True;
+    TemplateCheckBox.Font.Color := clWindowText;
+    SetSkipState;
+    PortButton.Caption := 'Open Port';
+    end;
+end;
+
+{------------------------------------------------------------------------------}
+
+procedure TForm1.SetSkipState;
+{Enable/Display Skip control based on template checkbox and debugging state}
+begin
+  if not Debugging and TemplateCheckBox.Checked then
+    begin
+    SkipLabel.Font.Color := clWindowText;
+    SkipEdit.ReadOnly := False;
+    SkipEdit.Color := clWhite;
+    end
+  else
+    begin
+    SkipLabel.Font.Color := clGray;
+    SkipEdit.ReadOnly := True;
+    SkipEdit.Color := clBtnFace;
     end;
 end;
 
