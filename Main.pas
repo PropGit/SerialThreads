@@ -13,6 +13,7 @@ type
     PortButton: TButton;
     RxMemo: TMemo;
     procedure PortButtonClick(Sender: TObject);
+    procedure ParseAllRx;
   private
     { Private declarations }
   public
@@ -30,13 +31,6 @@ implementation
 
 procedure TForm1.PortButtonClick(Sender: TObject);
 {Open/Close COM port and start/stop debug thread}
-var
-  Len      : Integer;
-  PStr     : PChar;
-  Patch    : Boolean;
-  PtStr    : String;
-  PtLen    : Integer;
-
 begin
   if not Debugging then
     begin
@@ -46,36 +40,7 @@ begin
       Debugging := True;
       PortButton.Caption := 'Close Port';
       RxMemo.Clear;
-      Patch := False;
-      while Debugging do
-        begin
-        Len := ifthen(RxHead >= RxTail, RxHead, RxBuffSize) - RxTail;
-        if Len > 0 then
-          begin
-          if not Patch then
-            begin
-            PStr := StrAlloc(Len+1);
-            CopyMemory(PStr, @RxBuff[RxTail], Len);
-            PStr[Len] := char(0);
-            end
-          else
-            begin
-            PtStr := RxMemo.Lines.Strings[RxMemo.Lines.Count-1];
-            RxMemo.Lines.Delete(RxMemo.Lines.Count-1);
-            PtLen := length(PtStr);
-            PStr := StrAlloc(PtLen+Len+1);
-            CopyMemory(PStr, @PtStr[1], PtLen);
-            CopyMemory(@PStr[PtLen], @RxBuff[RxTail], Len);
-            PStr[PtLen+Len] := char(0);
-            end;
-          RxMemo.Lines.Append(StrPas(PStr));
-          RxTail := (RxTail + Len) mod RxBuffSize;
-          if PStr[Len-1] <> char(10) then Patch := True;
-          StrDispose(PStr);
-          end;
-        Application.ProcessMessages;
-        Sleep(10);
-        end
+      ParseAllRx;
       end
     else
       Ser.CloseComm
@@ -88,6 +53,68 @@ begin
     PortButton.Caption := 'Open Port';
     end
 end;
+
+{------------------------------------------------------------------------------}
+
+procedure TForm1.ParseAllRx;
+var
+  Len      : Integer;
+  PStr     : PChar;
+  Lines    : TStrings;
+  Patch    : Boolean;
+
+{  PtStr    : String;
+  PtLen    : Integer;}
+
+begin
+  Lines := TStringList.Create;
+  Patch := False;
+  try
+    while Debugging do
+      begin
+      {Calc length of received data}
+      Len := ifthen(RxHead >= RxTail, RxHead, RxBuffSize) - RxTail;
+      if Len > 0 then
+        begin {Data available}
+        {Move received data from buffer}
+        PStr := StrAlloc(Len+1);
+        CopyMemory(PStr, @RxBuff[RxTail], Len);
+        PStr[Len] := char(0);
+        RxTail := (RxTail + Len) mod RxBuffSize;
+        {Parse data}
+        ExtractStrings([], [], PStr, Lines);
+        if not Patch then
+          RxMemo.Lines.AddStrings(Lines)
+        else
+          begin
+          RxMemo.Lines[RxMemo.Lines.Count-1] := RxMemo.Lines[RxMemo.Lines.Count-1] + Lines[0];
+          Lines.Delete(0);
+          RxMemo.Lines.AddStrings(Lines);
+          end;
+        if PStr[Len-1] <> char(10) then Patch := True;
+        StrDispose(PStr);
+        Lines.Clear;
+
+{
+          PtStr := RxMemo.Lines.Strings[RxMemo.Lines.Count-1];
+          RxMemo.Lines.Delete(RxMemo.Lines.Count-1);
+          PtLen := length(PtStr);
+          PStr := StrAlloc(PtLen+Len+1);
+          CopyMemory(PStr, @PtStr[1], PtLen);
+          CopyMemory(@PStr[PtLen], @RxBuff[RxTail], Len);
+          PStr[PtLen+Len] := char(0);
+          end;
+        RxMemo.Lines.Append(StrPas(PStr));}
+        end; {data available}
+      Application.ProcessMessages;
+      Sleep(10);
+      end; {while debugging}
+  finally
+    Lines.Destroy;
+  end;
+end;
+
+{------------------------------------------------------------------------------}
 
 Initialization
   Ser := TPropellerSerial.Create;
