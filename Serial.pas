@@ -56,7 +56,7 @@ type
   end;
 
   {Global Routines}
-  procedure MakeRxBuffer(Size: Cardinal);
+  procedure MakeRxBuffer;
 
 var
   BaudRate    : Cardinal;
@@ -75,12 +75,12 @@ implementation
 {##############################################################################}
 {##############################################################################}
 
-procedure MakeRxBuffer(Size: Cardinal);
-{Allocate memory for Receive Buffer}
+procedure MakeRxBuffer;
+{Allocate memory for Receive Buffer according to RxBuffSize}
 begin
   if RxBuff <> nil then
     freemem(RxBuff);
-  getmem(RxBuff, Size);
+  getmem(RxBuff, RxBuffSize);
 end;
 
 
@@ -250,7 +250,7 @@ begin
   {Set initial values}
   BaudRate := 2000000;
   RxBuffSize := 256;
-  MakeRxBuffer(RxBuffSize);
+  MakeRxBuffer;
   {Initialize Debug Thread and Alert Event object to signal it}
   FDebugThread := nil;
   FDebugTerminate := CreateEvent(nil, False, False, nil);

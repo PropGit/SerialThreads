@@ -80,7 +80,8 @@ end;
 
 procedure TForm1.BuffSizeEditExit(Sender: TObject);
 begin
-  MakeRxBuffer(StrToInt(BuffSizeEdit.Text));
+  RxBuffSize := StrToInt(BuffSizeEdit.Text);
+  MakeRxBuffer;
 end;
 
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
