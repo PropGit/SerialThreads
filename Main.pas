@@ -7,7 +7,7 @@ uses
   Dialogs, Serial, StdCtrls, Math;
 
 type
-  TPatType = (ptStart, ptAlpha, ptNum, ptWhite, ptEOL);
+  TPatType = (ST, AL, NM, WS, EL); {STart, ALpha, NuMeric, White Space, End of Line}
 
   TForm1 = class(TForm)
     PortEdit: TEdit;
@@ -129,13 +129,11 @@ end;
 {oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo}
 
 procedure TForm1.ParseAllRx;
-type
-  TCharType = (WS, EL, AL, NM);       {White Space, End of Line, ALpha, Numeric}
 const
   EOL   = [char(10), char(13)];       {End of line characters}
-  {Character to Char Type.
+  {Character to Pattern Type.
   (WS) White Space [0..9, 11, 12, 14..32] (includes controls), (EL) End of Line [10, 13], (NM) Numeric [48..57], and (AL) Alpha [33..47, 58..255] (includes punctuation)}
-  CtoCT : array[char] of TCharType =
+  CtoPT : array[char] of TPatType =
           {0   1   2   3   4   5   6   7   8   TB  LF  11  12  CR  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31}
           (WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, EL, WS, WS, EL, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS,
           {32  !   "   #   $   %   &   '   (   )   *   +   ,   -   .   /   0   1   2   3   4   5   6   7   8   9   :   ;   <   =   >   ?}
@@ -193,12 +191,7 @@ var
       Idx := 0;
       while Idx < Len do
         begin
-        case CtoCT[PStr[Idx]] of
-          AL : NewState := ptAlpha;
-          NM : NewState := ptNum;
-          WS : NewState := ptWhite;
-          EL : NewState := ptEOL;
-        end;
+        NewState := CtoPT[PStr[Idx]];
         end;
     end;
 
@@ -217,6 +210,7 @@ begin
   PStr := nil;
   ClearPatternList;
   PatSet := PatMatch;
+  PatState := ST;
   try
     PStr := StrAlloc(RxBuffSize+1);
     while Debugging do
