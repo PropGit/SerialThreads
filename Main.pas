@@ -70,6 +70,7 @@ begin
   Lines := TStringList.Create;
   Patch := False;
   try
+    PStr := StrAlloc(RxBuffSize+1);
     while Debugging do
       begin
       {Calc length of received data}
@@ -77,39 +78,26 @@ begin
       if Len > 0 then
         begin {Data available}
         {Move received data from buffer}
-        PStr := StrAlloc(Len+1);
         CopyMemory(PStr, @RxBuff[RxTail], Len);
         PStr[Len] := char(0);
         RxTail := (RxTail + Len) mod RxBuffSize;
         {Parse data}
         ExtractStrings([], [], PStr, Lines);
-        if not Patch then
-          RxMemo.Lines.AddStrings(Lines)
-        else
-          begin
+        if Patch and ((PStr[0] <> char(13)) or (PStr[0] <> char(10))) and (Lines.Count > 0) then
+          begin {Partial line received prior; patch previous and next together}
           RxMemo.Lines[RxMemo.Lines.Count-1] := RxMemo.Lines[RxMemo.Lines.Count-1] + Lines[0];
           Lines.Delete(0);
-          RxMemo.Lines.AddStrings(Lines);
           end;
-        if PStr[Len-1] <> char(10) then Patch := True;
-        StrDispose(PStr);
+        RxMemo.Lines.AddStrings(Lines);
+        {Check for partial line and prep for next receive}
+        Patch := (PStr[Len-1] <> char(13)) and (PStr[Len-1] <> char(10));
         Lines.Clear;
-
-{
-          PtStr := RxMemo.Lines.Strings[RxMemo.Lines.Count-1];
-          RxMemo.Lines.Delete(RxMemo.Lines.Count-1);
-          PtLen := length(PtStr);
-          PStr := StrAlloc(PtLen+Len+1);
-          CopyMemory(PStr, @PtStr[1], PtLen);
-          CopyMemory(@PStr[PtLen], @RxBuff[RxTail], Len);
-          PStr[PtLen+Len] := char(0);
-          end;
-        RxMemo.Lines.Append(StrPas(PStr));}
         end; {data available}
       Application.ProcessMessages;
       Sleep(10);
       end; {while debugging}
   finally
+    StrDispose(PStr);
     Lines.Destroy;
   end;
 end;
