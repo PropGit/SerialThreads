@@ -4,11 +4,19 @@ interface
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, Serial, StdCtrls, Math;
+  Dialogs, Serial, StdCtrls, Math, StrUtils;
 
 type
   TPatType = (ST, AL, NM, WS, EL); {STart, ALpha, NuMeric, White Space, End of Line}
 
+  {Pattern entry (used by PatList)}
+  PPattern = ^TPattern;
+  TPattern = record
+    PType   : TPatType;       {The type of pattern}
+    Size    : Cardinal;       {The length of the pattern}
+    Content : String;         {The specific content (for exact pattern matching only)}
+  end;
+  
   TForm1 = class(TForm)
     PortEdit: TEdit;
     PortLabel: TLabel;
@@ -34,17 +42,9 @@ type
     procedure SetSkipState;
     function  StrToInt(Str: String): Int64;
     procedure ClearPatternList;
-    procedure AddPattern(PType: TPatType; Size: Cardinal; Content: String);
+    function  AddPattern(PType: TPatType; Size: Cardinal; Content: String): PPattern;
   public
     { Public declarations }
-  end;
-
-  {Pattern entry (used by PatList)}
-  PPattern = ^TPattern;
-  TPattern = record
-    PType   : TPatType;
-    Size    : Cardinal;
-    Content : String;
   end;
 
 var
@@ -131,7 +131,7 @@ end;
 procedure TForm1.ParseAllRx;
 const
   EOL   = [char(10), char(13)];       {End of line characters}
-  {Character to Pattern Type.
+  {Character to Pattern Type (CtoPT).
   (WS) White Space [0..9, 11, 12, 14..32] (includes controls), (EL) End of Line [10, 13], (NM) Numeric [48..57], and (AL) Alpha [33..47, 58..255] (includes punctuation)}
   CtoPT : array[char] of TPatType =
           {0   1   2   3   4   5   6   7   8   TB  LF  11  12  CR  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31}
@@ -158,8 +158,7 @@ var
   Patch    : Boolean;      {True = must patch previous and current line together}
   PatSet   : Boolean;      {True = setting pattern by example template}
   Idx      : Cardinal;     {Data index (for pattern matching)}
-  Sz       : Cardinal;     {Data type size (for pattern matching)}
-  PatState : TPatType;
+//  Sz       : Cardinal;     {Data type size (for pattern matching)}
 
     {----------------}
 
@@ -187,12 +186,23 @@ var
     {Parse pattern from incoming data}
     var
       NewState : TPatType;
+      Pat      : TPattern;
     begin
+      Pat := TPattern(PatList.Items[PatList.Count-1]^);
       Idx := 0;
       while Idx < Len do
-        begin
+        begin {For all current data in buffer...}
+        {Get new state}
         NewState := CtoPT[PStr[Idx]];
-        end;
+        if NewState = Pat.PType then
+          begin {Same as previous state?  Increment content length and store content if Alpha}
+          inc(Pat.Size);
+          if NewState = AL then Pat.Content := Pat.Content + PStr[Idx];
+          end
+        else    {Else, add new state to the list}
+          Pat := TPattern(AddPattern(NewState, 1, ifthen(NewState <> AL, '', PStr[Idx]))^);
+        inc(Idx);
+        end; {for all current data}
     end;
 
     {----------------}
@@ -209,8 +219,8 @@ begin
   Patch := False;
   PStr := nil;
   ClearPatternList;
+  AddPattern(ST, 0, '');
   PatSet := PatMatch;
-  PatState := ST;
   try
     PStr := StrAlloc(RxBuffSize+1);
     while Debugging do
@@ -328,16 +338,14 @@ end;
 
 {------------------------------------------------------------------------------}
 
-procedure TForm1.AddPattern(PType: TPatType; Size: Cardinal; Content: String);
-{Add (append) a new pattern to pattern list.}
-var
-  Pattern : PPattern;
+function TForm1.AddPattern(PType: TPatType; Size: Cardinal; Content: String): PPattern;
+{Add (append) a new pattern to pattern list and return that pattern.}
 begin
-  new(Pattern);
-  Pattern.PType := PType;
-  Pattern.Size := Size;
-  Pattern.Content := Content;
-  PatList.Add(Pattern);
+  new(Result);
+  Result.PType := PType;
+  Result.Size := Size;
+  Result.Content := Content;
+  PatList.Add(Result);
 end;
 
 {------------------------------------------------------------------------------}
