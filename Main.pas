@@ -29,6 +29,8 @@ type
     TemplateCheckBox: TCheckBox;
     SkipLabel: TLabel;
     SkipEdit: TEdit;
+    EndOfTemplateDelayEdit: TEdit;
+    EndOfTemplateDelayLabel: TLabel;
     { Event declarations }
     procedure FormCreate(Sender: TObject);
     procedure BuffSizeEditExit(Sender: TObject);
@@ -48,11 +50,11 @@ type
   end;
 
 var
-  Form1     : TForm1;
-  Ser       : TPropellerSerial;
-  Debugging : Boolean;  {Indicates debug thread is running}
-  PatMatch  : Boolean;  {Indicates pattern match (template) mode}
-  PatList   : TList;
+  Form1       : TForm1;
+  Ser         : TPropellerSerial;
+  Debugging   : Boolean;  {Indicates debug thread is running}
+  UseTemplate : Boolean;  {Indicates template mode enabled}
+  PatList     : TList;
 
 implementation
 
@@ -69,7 +71,7 @@ begin
   BuffSizeEdit.Text := IntToStr(DefaultRxBufferSize);
   BaudEdit.Text := IntToStr(DefaultBaudRate);
   PortEdit.Text := DefaultPort;
-  PatMatch := TemplateCheckbox.Checked;
+  UseTemplate := TemplateCheckbox.Checked;
 end;
 
 {------------------------------------------------------------------------------}
@@ -91,7 +93,7 @@ end;
 
 procedure TForm1.TemplateCheckBoxClick(Sender: TObject);
 begin
-  PatMatch := TemplateCheckbox.Checked;
+  UseTemplate := TemplateCheckbox.Checked;
   SetSkipState;
 end;
 
@@ -156,8 +158,11 @@ var
   PStr     : PChar;
   Lines    : TStrings;
   Patch    : Boolean;      {True = must patch previous and current line together}
+  PatMatch : Boolean;      {True = match data to template pattern; False = learn template pattern}
   PatSkip  : Cardinal;     {>0 = Number of initial lines to skip while setting pattern by example template}
+  PatDelay : Cardinal;     {Moment to lock in pattern if template enabled}
   Idx      : Cardinal;     {Data index (for pattern matching)}
+
 //  Sz       : Cardinal;     {Data type size (for pattern matching)}
 
     {----------------}
@@ -190,6 +195,7 @@ var
       Pat      : PPattern;
     begin
       Pat := PPattern(PatList.Items[PatList.Count-1]);
+      PreState := Pat.PType;
       Idx := 0;
       {Skip leading lines if necessary}
       while (PatSkip > 0) and (Idx < Len) do
@@ -230,6 +236,7 @@ begin
   PStr := nil;
   ClearPatternList;
   AddPattern(ST, 0, '');
+  PatMatch := False;
   PatSkip := StrToInt(SkipEdit.Text);
   try
     PStr := StrAlloc(RxBuffSize+1);
@@ -244,17 +251,25 @@ begin
         PStr[Len] := char(0);
         RxTail := (RxTail + Len) mod RxBuffSize;
         {Parse data}
-        if not PatMatch then
+        if not UseTemplate then  {Accept raw data?}
           EmitLines
-        else
-          if PatMatch then
-            begin
+        else                     {Else...}
+          if not PatMatch then
+            begin                {Learn template patterns}
             ParsePattern;
             EmitLines;
+            PatDelay := GetTickCount + StrToInt(EndOfTemplateDelayEdit.Text);  {(re)Mark start of pattern delay}
             end
           else
-            MatchPattern;
+            MatchPattern;        {Match data to template pattern}
         end; {data available}
+      if UseTemplate and (not PatMatch) and (GetTickCount > GetTickCount) then
+        begin {Template learning period is over}
+        PatMatch := True;
+        RxMemo.Lines.Add('');
+        RxMemo.Lines.Add('[Template Recorded]');
+        RxMemo.Lines.Add('');
+        end;
       Application.ProcessMessages;
       Sleep(10);
       end; {while debugging}
@@ -306,19 +321,25 @@ end;
 {------------------------------------------------------------------------------}
 
 procedure TForm1.SetSkipState;
-{Enable/Display Skip control based on template checkbox and debugging state}
+{Enable/Disable Skip control based on template checkbox and debugging state}
 begin
-  if not Debugging and PatMatch then
+  if not Debugging and UseTemplate then
     begin
     SkipLabel.Font.Color := clWindowText;
     SkipEdit.ReadOnly := False;
     SkipEdit.Color := clWhite;
+    EndOfTemplateDelayLabel.Font.Color := clWindowText;
+    EndOfTemplateDelayEdit.ReadOnly := False;
+    EndOfTemplateDelayEdit.Color := clWhite;
     end
   else
     begin
     SkipLabel.Font.Color := clGray;
     SkipEdit.ReadOnly := True;
     SkipEdit.Color := clBtnFace;
+    EndOfTemplateDelayLabel.Font.Color := clGray;
+    EndOfTemplateDelayEdit.ReadOnly := True;
+    EndOfTemplateDelayEdit.Color := clBtnFace;
     end;
 end;
 
