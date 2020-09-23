@@ -156,7 +156,7 @@ var
   PStr     : PChar;
   Lines    : TStrings;
   Patch    : Boolean;      {True = must patch previous and current line together}
-  PatSet   : Boolean;      {True = setting pattern by example template}
+  PatSkip  : Cardinal;     {>0 = Number of initial lines to skip while setting pattern by example template}
   Idx      : Cardinal;     {Data index (for pattern matching)}
 //  Sz       : Cardinal;     {Data type size (for pattern matching)}
 
@@ -185,11 +185,21 @@ var
     procedure ParsePattern;
     {Parse pattern from incoming data}
     var
+      PreState : TPatType;
       NewState : TPatType;
-      Pat      : TPattern;
+      Pat      : PPattern;
     begin
-      Pat := TPattern(PatList.Items[PatList.Count-1]^);
+      Pat := PPattern(PatList.Items[PatList.Count-1]);
       Idx := 0;
+      {Skip leading lines if necessary}
+      while (PatSkip > 0) and (Idx < Len) do
+        begin
+        NewState := CtoPT[PStr[Idx]];
+        dec(PatSkip, ord((NewState = EL) and (NewState <> PreState)));
+        PreState := NewState;
+        inc(Idx);
+        end;
+      {Parse patterns}
       while Idx < Len do
         begin {For all current data in buffer...}
         {Get new state}
@@ -200,7 +210,7 @@ var
           if NewState = AL then Pat.Content := Pat.Content + PStr[Idx];
           end
         else    {Else, add new state to the list}
-          Pat := TPattern(AddPattern(NewState, 1, ifthen(NewState <> AL, '', PStr[Idx]))^);
+          Pat := PPattern(AddPattern(NewState, 1, ifthen(NewState <> AL, '', PStr[Idx])));
         inc(Idx);
         end; {for all current data}
     end;
@@ -220,7 +230,7 @@ begin
   PStr := nil;
   ClearPatternList;
   AddPattern(ST, 0, '');
-  PatSet := PatMatch;
+  PatSkip := StrToInt(SkipEdit.Text);
   try
     PStr := StrAlloc(RxBuffSize+1);
     while Debugging do
@@ -237,7 +247,7 @@ begin
         if not PatMatch then
           EmitLines
         else
-          if PatSet then
+          if PatMatch then
             begin
             ParsePattern;
             EmitLines;
