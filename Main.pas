@@ -220,6 +220,7 @@ var
           Pat := PPattern(AddPattern(NewState, 1, ifthen(NewState <> AL, '', PStr[Idx])));
         inc(Idx);
         end; {for all current data}
+      PatDelay := GetTickCount + EOTDelay;  {(re)Mark start of pattern delay}
     end;
 
     {----------------}
@@ -255,17 +256,13 @@ begin
         PStr[Len] := char(0);
         RxTail := (RxTail + Len) mod RxBuffSize;
         {Parse data}
-        if not UseTemplate then  {Accept raw data?}
-          EmitLines
-        else                     {Else...}
-          if not PatMatch then
-            begin                {Learn template patterns}
-            EmitLines;
-            ParsePattern;
-            PatDelay := GetTickCount + EOTDelay;  {(re)Mark start of pattern delay}
-            end
-          else
-            MatchPattern;        {Match data to template pattern}
+        if UseTemplate and PatMatch then     {Match data to template pattern?}
+          MatchPattern
+        else                                 {Else...}
+          begin
+          EmitLines;                         {Show received data}
+          if not PatMatch then ParsePattern; {Learn template patterns}
+          end;
         end
       else    {Else, no data available}
         if UseTemplate and (not PatMatch) and (GetTickCount > PatDelay) then
