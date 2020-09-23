@@ -160,7 +160,8 @@ var
   Patch    : Boolean;      {True = must patch previous and current line together}
   PatMatch : Boolean;      {True = match data to template pattern; False = learn template pattern}
   PatSkip  : Cardinal;     {>0 = Number of initial lines to skip while setting pattern by example template}
-  PatDelay : Cardinal;     {Moment to lock in pattern if template enabled}
+  PatDelay : Cardinal;     {The moment to lock in pattern if template enabled}
+  EOTDelay : Cardinal;     {The end-of-template delay}
   Idx      : Cardinal;     {Data index (for pattern matching)}
 
 //  Sz       : Cardinal;     {Data type size (for pattern matching)}
@@ -201,9 +202,9 @@ var
       while (PatSkip > 0) and (Idx < Len) do
         begin
         NewState := CtoPT[PStr[Idx]];
-        dec(PatSkip, ord((NewState = EL) and (NewState <> PreState)));
+        dec(PatSkip, ord((NewState <> EL) and (PreState = EL)));
         PreState := NewState;
-        inc(Idx);
+        inc(Idx, ord(PatSkip > 0));
         end;
       {Parse patterns}
       while Idx < Len do
@@ -226,6 +227,7 @@ var
     procedure MatchPattern;
     {Match template pattern to incoming data}
     begin
+      EmitLines;
     end;
 
     {----------------}
@@ -238,6 +240,8 @@ begin
   AddPattern(ST, 0, '');
   PatMatch := False;
   PatSkip := StrToInt(SkipEdit.Text);
+  EOTDelay := StrToInt(EndOfTemplateDelayEdit.Text);
+  PatDelay := MAXDWORD;
   try
     PStr := StrAlloc(RxBuffSize+1);
     while Debugging do
@@ -256,20 +260,21 @@ begin
         else                     {Else...}
           if not PatMatch then
             begin                {Learn template patterns}
-            ParsePattern;
             EmitLines;
-            PatDelay := GetTickCount + StrToInt(EndOfTemplateDelayEdit.Text);  {(re)Mark start of pattern delay}
+            ParsePattern;
+            PatDelay := GetTickCount + EOTDelay;  {(re)Mark start of pattern delay}
             end
           else
             MatchPattern;        {Match data to template pattern}
-        end; {data available}
-      if UseTemplate and (not PatMatch) and (GetTickCount > GetTickCount) then
-        begin {Template learning period is over}
-        PatMatch := True;
-        RxMemo.Lines.Add('');
-        RxMemo.Lines.Add('[Template Recorded]');
-        RxMemo.Lines.Add('');
-        end;
+        end
+      else    {Else, no data available}
+        if UseTemplate and (not PatMatch) and (GetTickCount > PatDelay) then
+          begin {Template learning period is over}
+          PatMatch := True;
+          RxMemo.Lines.Add('');
+          RxMemo.Lines.Add('[Template Recorded]');
+          RxMemo.Lines.Add('');
+          end;
       Application.ProcessMessages;
       Sleep(10);
       end; {while debugging}
