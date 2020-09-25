@@ -7,14 +7,19 @@ uses
   Dialogs, Serial, StdCtrls, Math, StrUtils;
 
 type
+  {Custom Exceptions}
+  ENoMatch = class(Exception);   {Pattern matching failed}
+
+  {Pattern types}
   TPatType = (ST, AL, NM, WS, EL); {STart, ALpha, NuMeric, White Space, End of Line}
 
   {Pattern entry (used by PatList)}
   PPattern = ^TPattern;
   TPattern = record
-    PType   : TPatType;       {The type of pattern}
-    Size    : Cardinal;       {The length of the pattern}
-    Content : String;         {The specific content (for exact pattern matching only)}
+    PType    : TPatType;       {The type of pattern}
+    Size     : Cardinal;       {The length of the pattern}
+    Content  : String;         {The specific content (for exact pattern matching only)}
+    MatchIdx : Cardinal;       {The progressive match index (for pattern matching)}
   end;
   
   TForm1 = class(TForm)
@@ -45,6 +50,7 @@ type
     function  StrToInt(Str: String): Int64;
     procedure ClearPatternList;
     function  AddPattern(PType: TPatType; Size: Cardinal; Content: String): PPattern;
+    procedure DeletePattern(Idx: Cardinal);
   public
     { Public declarations }
   end;
@@ -162,9 +168,7 @@ var
   PatSkip  : Cardinal;     {>0 = Number of initial lines to skip while setting pattern by example template}
   PatDelay : Cardinal;     {The moment to lock in pattern if template enabled}
   EOTDelay : Cardinal;     {The end-of-template delay}
-  Idx      : Cardinal;     {Data index (for pattern matching)}
-
-//  Sz       : Cardinal;     {Data type size (for pattern matching)}
+  PatIdx   : Cardinal;     {Current pattern index (when pattern matching)}
 
     {----------------}
 
@@ -194,6 +198,7 @@ var
       PreState : TPatType;
       NewState : TPatType;
       Pat      : PPattern;
+      Idx      : Cardinal;
     begin
       Pat := PPattern(PatList.Items[PatList.Count-1]);
       PreState := Pat.PType;
@@ -212,12 +217,12 @@ var
         {Get new state}
         NewState := CtoPT[PStr[Idx]];
         if NewState = Pat.PType then
-          begin {Same as previous state?  Increment content length and store content if Alpha}
+          begin {Same as previous state?  Increment content length and store content}
           inc(Pat.Size);
-          if NewState = AL then Pat.Content := Pat.Content + PStr[Idx];
+          Pat.Content := Pat.Content + PStr[Idx];
           end
         else    {Else, add new state to the list}
-          Pat := PPattern(AddPattern(NewState, 1, ifthen(NewState <> AL, '', PStr[Idx])));
+          Pat := PPattern(AddPattern(NewState, 1, PStr[Idx]));
         inc(Idx);
         end; {for all current data}
       PatDelay := GetTickCount + EOTDelay;  {(re)Mark start of pattern delay}
@@ -227,8 +232,33 @@ var
 
     procedure MatchPattern;
     {Match template pattern to incoming data}
+    var
+      Idx      : Cardinal;
+      DType    : TPatType;
+      Pat      : PPattern;
     begin
-      EmitLines;
+      if PatList.Count = 0 then exit;
+      Pat := PPattern(PatList.Items[PatIdx]);
+      Idx := 0;
+      {Match patterns}
+      while Idx < Len do
+        begin {For all current data in buffer...}
+        {Get data type}
+        DType := CtoPT[PStr[Idx]];
+        if DType <> Pat.PType then {Transition to next pattern?}
+          begin
+          if Pat.MatchIdx < Pat.Size then raise ENoMatch.Create('');    {Abort if previous pattern doesn't match}
+          Pat.MatchIdx := 0;                                            {Else, move on...}
+          PatIdx := (PatIdx + 1) mod PatList.Count;                     {to next pattern; wrap to first if necessary}
+          Pat := PPattern(PatList.Items[PatIdx]);
+          if DType <> Pat.PType then raise ENoMatch.Create('');         {Abort if current pattern doesn't match}
+          end;
+        if (DType = NM) then                                            {If number type; increment match index (accept any number)}
+          inc(Pat.MatchIdx)
+        else                                                            {Else, other types' content must match exactly}
+          if (Pat.MatchIdx < Pat.Size) and (PStr[Idx] = Pat.Content[Pat.MatchIdx+1]) then inc(Pat.MatchIdx) else raise ENoMatch.Create('');  {Increment match index or abort if no match}
+        inc(Idx);
+        end; {for all current data}
     end;
 
     {----------------}
@@ -238,43 +268,49 @@ begin
   Patch := False;
   PStr := nil;
   ClearPatternList;
-  AddPattern(ST, 0, '');
+  AddPattern(ST, 0, '');                     {Create initial state pattern}
   PatMatch := False;
   PatSkip := StrToInt(SkipEdit.Text);
   EOTDelay := StrToInt(EndOfTemplateDelayEdit.Text);
   PatDelay := MAXDWORD;
   try
     PStr := StrAlloc(RxBuffSize+1);
-    while Debugging do
-      begin
-      {Calc length of received data}
-      Len := ifthen(RxHead >= RxTail, RxHead, RxBuffSize) - RxTail;
-      if Len > 0 then
-        begin {Data available}
-        {Move received data from buffer}
-        CopyMemory(PStr, @RxBuff[RxTail], Len);
-        PStr[Len] := char(0);
-        RxTail := (RxTail + Len) mod RxBuffSize;
-        {Parse data}
-        if UseTemplate and PatMatch then     {Match data to template pattern?}
-          MatchPattern
-        else                                 {Else...}
-          begin
-          EmitLines;                         {Show received data}
-          if not PatMatch then ParsePattern; {Learn template patterns}
-          end;
-        end
-      else    {Else, no data available}
-        if UseTemplate and (not PatMatch) and (GetTickCount > PatDelay) then
-          begin {Template learning period is over}
-          PatMatch := True;
-          RxMemo.Lines.Add('');
-          RxMemo.Lines.Add('[Template Recorded]');
-          RxMemo.Lines.Add('');
-          end;
-      Application.ProcessMessages;
-      Sleep(10);
-      end; {while debugging}
+    try
+      while Debugging do
+        begin
+        {Calc length of received data}
+        Len := ifthen(RxHead >= RxTail, RxHead, RxBuffSize) - RxTail;
+        if Len > 0 then
+          begin {Data available}
+          {Move received data from buffer}
+          CopyMemory(PStr, @RxBuff[RxTail], Len);
+          PStr[Len] := char(0);
+          RxTail := (RxTail + Len) mod RxBuffSize;
+          {Parse data}
+          if UseTemplate and PatMatch then     {Match data to template pattern?}
+            MatchPattern
+          else                                 {Else...}
+            begin
+            EmitLines;                         {Show received data}
+            if not PatMatch then ParsePattern; {Learn template patterns}
+            end;
+          end
+        else    {Else, no data available}
+          if UseTemplate and (not PatMatch) and (GetTickCount > PatDelay) then
+            begin {Template learning period is over}
+            PatMatch := True;
+            RxMemo.Lines.Add('');
+            RxMemo.Lines.Add('[Template Recorded]');
+            RxMemo.Lines.Add('');
+            DeletePattern(0);                  {Remove initial state pattern}
+            PatIdx := 0;
+            end;
+        Application.ProcessMessages;
+        Sleep(10);
+        end; {while debugging}
+    except
+      on ENoMatch do RxMemo.Lines.Add('Match failed');
+    end;
   finally
     StrDispose(PStr);
     Lines.Destroy;
@@ -362,11 +398,7 @@ end;
 procedure TForm1.ClearPatternList;
 {Clear entire pattern list}
 begin
-  while PatList.Count > 0 do
-    begin
-    Dispose(PatList.Items[0]);
-    PatList.Delete(0);
-    end;
+  while PatList.Count > 0 do DeletePattern(0);
 end;
 
 {------------------------------------------------------------------------------}
@@ -378,7 +410,20 @@ begin
   Result.PType := PType;
   Result.Size := Size;
   Result.Content := Content;
+  Result.MatchIdx := 0;
   PatList.Add(Result);
+end;
+
+{------------------------------------------------------------------------------}
+
+procedure TForm1.DeletePattern(Idx: Cardinal);
+{Clear the Idx pattern from the list}
+begin
+  if PatList.Count > Idx then
+    begin
+    Dispose(PatList.Items[Idx]);
+    PatList.Delete(Idx);
+    end;
 end;
 
 {------------------------------------------------------------------------------}
