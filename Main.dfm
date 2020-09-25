@@ -68,6 +68,13 @@ object Form1: TForm1
     ParentColor = False
     ParentFont = False
   end
+  object MatchingLinesProcessedLabel: TLabel
+    Left = 8
+    Top = 792
+    Width = 128
+    Height = 13
+    Caption = 'Matching Lines Processed:'
+  end
   object PortEdit: TEdit
     Left = 266
     Top = 13
@@ -90,7 +97,7 @@ object Form1: TForm1
     Left = 8
     Top = 128
     Width = 308
-    Height = 681
+    Height = 649
     Anchors = [akLeft, akTop, akRight, akBottom]
     Color = clWhite
     ScrollBars = ssVertical
@@ -143,5 +150,16 @@ object Form1: TForm1
     ReadOnly = True
     TabOrder = 5
     Text = '750'
+  end
+  object MatchingLinesProcessedEdit: TEdit
+    Left = 141
+    Top = 789
+    Width = 57
+    Height = 21
+    Color = clBtnFace
+    ReadOnly = True
+    TabOrder = 8
+    Text = '0'
+    OnExit = BuffSizeEditExit
   end
 end

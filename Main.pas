@@ -36,6 +36,8 @@ type
     SkipEdit: TEdit;
     EndOfTemplateDelayEdit: TEdit;
     EndOfTemplateDelayLabel: TLabel;
+    MatchingLinesProcessedEdit: TEdit;
+    MatchingLinesProcessedLabel: TLabel;
     { Event declarations }
     procedure FormCreate(Sender: TObject);
     procedure BuffSizeEditExit(Sender: TObject);
@@ -160,15 +162,17 @@ const
            AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL
           );
 var
-  Len      : Cardinal;
-  PStr     : PChar;
-  Lines    : TStrings;
-  Patch    : Boolean;      {True = must patch previous and current line together}
-  PatMatch : Boolean;      {True = match data to template pattern; False = learn template pattern}
-  PatSkip  : Cardinal;     {>0 = Number of initial lines to skip while setting pattern by example template}
-  PatDelay : Cardinal;     {The moment to lock in pattern if template enabled}
-  EOTDelay : Cardinal;     {The end-of-template delay}
-  PatIdx   : Cardinal;     {Current pattern index (when pattern matching)}
+  Len         : Cardinal;
+  PStr        : PChar;
+  Lines       : TStrings;
+  Patch       : Boolean;      {True = must patch previous and current line together}
+  PatMatch    : Boolean;      {True = match data to template pattern; False = learn template pattern}
+  PatSkip     : Cardinal;     {>0 = Number of initial lines to skip while setting pattern by example template}
+  PatDelay    : Cardinal;     {The moment to lock in pattern if template enabled}
+  PatIdx      : Cardinal;     {Current pattern index (when pattern matching)}
+  PatLines    : Cardinal;     {Number of lines in the entire pattern set}
+  PatMatLines : Cardinal;     {Number of processed matching lines}
+  EOTDelay    : Cardinal;     {The end-of-template delay}
 
     {----------------}
 
@@ -222,7 +226,10 @@ var
           Pat.Content := Pat.Content + PStr[Idx];
           end
         else    {Else, add new state to the list}
+          begin
           Pat := PPattern(AddPattern(NewState, 1, PStr[Idx]));
+          inc(PatLines, ord(NewState = EL));
+          end;
         inc(Idx);
         end; {for all current data}
       PatDelay := GetTickCount + EOTDelay;  {(re)Mark start of pattern delay}
@@ -250,6 +257,11 @@ var
           if Pat.MatchIdx < Pat.Size then raise ENoMatch.Create('');    {Abort if previous pattern doesn't match}
           Pat.MatchIdx := 0;                                            {Else, move on...}
           PatIdx := (PatIdx + 1) mod PatList.Count;                     {to next pattern; wrap to first if necessary}
+          if PatIdx = 0 then
+            begin
+            inc(PatMatLines, PatLines);                                 {Entire pattern matched}
+            MatchingLinesProcessedEdit.Text := inttostr(PatMatLines);
+            end;
           Pat := PPattern(PatList.Items[PatIdx]);
           if DType <> Pat.PType then raise ENoMatch.Create('');         {Abort if current pattern doesn't match}
           end;
@@ -271,6 +283,8 @@ begin
   AddPattern(ST, 0, '');                     {Create initial state pattern}
   PatMatch := False;
   PatSkip := StrToInt(SkipEdit.Text);
+  PatLines := 0;
+  PatMatLines := 0;
   EOTDelay := StrToInt(EndOfTemplateDelayEdit.Text);
   PatDelay := MAXDWORD;
   try
