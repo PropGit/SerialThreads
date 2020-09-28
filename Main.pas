@@ -162,17 +162,19 @@ const
            AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL
           );
 var
-  Len         : Cardinal;
-  PStr        : PChar;
-  Lines       : TStrings;
-  Patch       : Boolean;      {True = must patch previous and current line together}
-  PatMatch    : Boolean;      {True = match data to template pattern; False = learn template pattern}
-  PatSkip     : Cardinal;     {>0 = Number of initial lines to skip while setting pattern by example template}
-  PatDelay    : Cardinal;     {The moment to lock in pattern if template enabled}
-  PatIdx      : Cardinal;     {Current pattern index (when pattern matching)}
-  PatLines    : Cardinal;     {Number of lines in the entire pattern set}
-  PatMatLines : Cardinal;     {Number of processed matching lines}
-  EOTDelay    : Cardinal;     {The end-of-template delay}
+  Len          : Cardinal;
+  PStr         : PChar;
+  Lines        : TStrings;
+  Patch        : Boolean;      {True = must patch previous and current line together}
+  PatMatch     : Boolean;      {True = match data to template pattern; False = learn template pattern}
+  PatSkip      : Cardinal;     {>0 = Number of initial lines to skip while setting pattern by example template}
+  PatDelay     : Cardinal;     {The moment to lock in pattern if template enabled}
+  PatIdx       : Cardinal;     {Current pattern index (when pattern matching)}
+  PatLines     : Cardinal;     {Number of lines in the entire pattern set}
+//  PatResults   : String;       {Notice of pattern recording performed}
+  PatMatLines  : Cardinal;     {Number of processed matching lines}
+  PreState     : TPatType;     {Used by ParsePattern}
+  EOTDelay     : Cardinal;     {The end-of-template delay}
 
     {----------------}
 
@@ -199,19 +201,18 @@ var
     procedure ParsePattern;
     {Parse pattern from incoming data}
     var
-      PreState : TPatType;
       NewState : TPatType;
       Pat      : PPattern;
       Idx      : Cardinal;
     begin
-      Pat := PPattern(PatList.Items[PatList.Count-1]);
-      PreState := Pat.PType;
+      Pat := PPattern(PatList.Items[PatList.Count-1]);    
       Idx := 0;
       {Skip leading lines if necessary}
       while (PatSkip > 0) and (Idx < Len) do
         begin
         NewState := CtoPT[PStr[Idx]];
         dec(PatSkip, ord((NewState <> EL) and (PreState = EL)));
+//        if (NewState <> EL) and (PreState = EL) then PatResults := PatResults + '  - leading line skipped'+#$D#$A;
         PreState := NewState;
         inc(Idx, ord(PatSkip > 0));
         end;
@@ -229,6 +230,7 @@ var
           begin
           Pat := PPattern(AddPattern(NewState, 1, PStr[Idx]));
           inc(PatLines, ord(NewState = EL));
+//          if (NewState = EL) then PatResults := PatResults + '  - line parsed'+#$D#$A;
           end;
         inc(Idx);
         end; {for all current data}
@@ -281,10 +283,13 @@ begin
   PStr := nil;
   ClearPatternList;
   AddPattern(ST, 0, '');                     {Create initial state pattern}
+  PreState := ST;
   PatMatch := False;
   PatSkip := StrToInt(SkipEdit.Text);
   PatLines := 0;
   PatMatLines := 0;
+//  PatResults := '';
+  MatchingLinesProcessedEdit.Text := '0';
   EOTDelay := StrToInt(EndOfTemplateDelayEdit.Text);
   PatDelay := MAXDWORD;
   try
@@ -315,6 +320,7 @@ begin
             PatMatch := True;
             RxMemo.Lines.Add('');
             RxMemo.Lines.Add('[Template Recorded]');
+//            RxMemo.Lines.Add(PatResults);
             RxMemo.Lines.Add('');
             DeletePattern(0);                  {Remove initial state pattern}
             PatIdx := 0;
