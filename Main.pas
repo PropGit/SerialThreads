@@ -173,7 +173,6 @@ var
   PatLines     : Cardinal;     {Number of lines in the entire pattern set}
 //  PatResults   : String;       {Notice of pattern recording performed}
   PatMatLines  : Cardinal;     {Number of processed matching lines}
-  PreState     : TPatType;     {Used by ParsePattern}
   EOTDelay     : Cardinal;     {The end-of-template delay}
 
     {----------------}
@@ -205,18 +204,8 @@ var
       Pat      : PPattern;
       Idx      : Cardinal;
     begin
-      Pat := PPattern(PatList.Items[PatList.Count-1]);    
+      Pat := PPattern(PatList.Items[PatList.Count-1]);
       Idx := 0;
-      {Skip leading lines if necessary}
-      while (PatSkip > 0) and (Idx < Len) do
-        begin
-        NewState := CtoPT[PStr[Idx]];
-        dec(PatSkip, ord((NewState <> EL) and (PreState = EL)));
-//        if (NewState <> EL) and (PreState = EL) then PatResults := PatResults + '  - leading line skipped'+#$D#$A;
-        PreState := NewState;
-        inc(Idx, ord(PatSkip > 0));
-        end;
-      {Parse patterns}
       while Idx < Len do
         begin {For all current data in buffer...}
         {Get new state}
@@ -235,6 +224,35 @@ var
         inc(Idx);
         end; {for all current data}
       PatDelay := GetTickCount + EOTDelay;  {(re)Mark start of pattern delay}
+    end;
+
+    {----------------}
+
+    procedure FinishPattern;
+    {Finish (finalize) parse pattern}
+    var
+      NewState : TPatType;
+      PreState : TPatType;
+    begin
+      {Template learning period is over}
+      PatMatch := True;
+      DeletePattern(0);                  {Remove initial state pattern (it was just a primer)}
+      {Remove leading lines if necessary}
+      PreState := ST;
+      while (PatSkip > 0) and (PatList.Count > 0) do
+        begin
+        NewState := PPattern(PatList.Items[0]).PType;
+        dec(PatSkip, ord((NewState <> EL) and (PreState = EL)));
+//        if (NewState <> EL) and (PreState = EL) then PatResults := PatResults + '  - leading line skipped'+#$D#$A;
+        PreState := NewState;
+        if PatSkip > 0 then DeletePattern(0);
+        end;
+      {Display results}
+      RxMemo.Lines.Add('');
+      if PatList.Count > 0 then RxMemo.Lines.Add('[Template Recorded]') else RxMemo.Lines.Add('[No template found]');
+//      RxMemo.Lines.Add(PatResults);
+      RxMemo.Lines.Add('');
+      PatIdx := 0;
     end;
 
     {----------------}
@@ -283,7 +301,6 @@ begin
   PStr := nil;
   ClearPatternList;
   AddPattern(ST, 0, '');                     {Create initial state pattern}
-  PreState := ST;
   PatMatch := False;
   PatSkip := StrToInt(SkipEdit.Text);
   PatLines := 0;
@@ -315,16 +332,7 @@ begin
             end;
           end
         else    {Else, no data available}
-          if UseTemplate and (not PatMatch) and (GetTickCount > PatDelay) then
-            begin {Template learning period is over}
-            PatMatch := True;
-            RxMemo.Lines.Add('');
-            RxMemo.Lines.Add('[Template Recorded]');
-//            RxMemo.Lines.Add(PatResults);
-            RxMemo.Lines.Add('');
-            DeletePattern(0);                  {Remove initial state pattern}
-            PatIdx := 0;
-            end;
+          if UseTemplate and (not PatMatch) and (GetTickCount > PatDelay) then FinishPattern;
         Application.ProcessMessages;
         Sleep(10);
         end; {while debugging}
