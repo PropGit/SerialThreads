@@ -203,6 +203,37 @@ var
 
     {----------------}
 
+    function ParseState(PT: TPatType; Chr: Char): TPatType;
+    {Parse new state from current pattern type and current character}
+    begin
+      {Start with raw type...}
+      Result := CtoPT[Chr];
+      {... and convert to final type (if necessary)}
+      case Result of
+        PB: if PT in [ST, WS, EL] then Result := BN else Result := AL;  {Convert ProtoBinary to BinaryNumber if predelimited (or Alpha otherwise)}
+        PH: if PT in [ST, WS, EL] then Result := HN else Result := AL;  {Convert ProtoHexadecimal to HexadecimalNumber if predelimited (or Alpha otherwise)}
+        BD: if PT in [BN, DN, HN] then                                  {Convert BinaryDigit to XNumber if exists, or DecimalNumber if predelimited (or Alpha otherwise)}
+              Result := PT
+            else if PT in [ST, WS, EL] then
+              Result := DN
+            else
+              Result := AL;
+        DD: if PT in [DN, HN] then                                      {Convert DecimalDigit to Dec/HexNumber if exists, or DecimalNumber if predelimited (or Alpha otherwise)}
+              Result := PT
+            else if PT in [ST, WS, EL] then
+              Result := DN
+            else
+              Result := AL;
+        HD: if PT = HN then                                             {Convert HexadecimalDigit to HexadecimalNumber if exists (or Alpha otherwise)}
+              Result := HN
+            else
+              Result := AL;
+        CD: if PT in [BN, DN, HN] then Result := PT else Result := AL;  {Convert ContinuationDigit to pre-XNumeric if exists (or Alpha otherwise)}
+      end;
+    end;
+
+    {----------------}
+
     procedure ParsePattern;
     {Parse pattern from incoming data}
     var
@@ -215,30 +246,7 @@ var
       while Idx < Len do
         begin {For all current data in buffer...}
         {Get new state}
-        {By starting with raw type...}
-        NewState := CtoPT[PStr[Idx]];
-        {... and converting to final type (if necessary)}
-        case NewState of
-          PB: if Pat.PType in [ST, WS, EL] then NewState := BN else NewState := AL;        {Convert ProtoBinary to BinaryNumber if predelimited (or Alpha otherwise)}
-          PH: if Pat.PType in [ST, WS, EL] then NewState := HN else NewState := AL;        {Convert ProtoHexadecimal to HexadecimalNumber if predelimited (or Alpha otherwise)}
-          BD: if Pat.PType in [BN, DN, HN] then                                            {Convert BinaryDigit to XNumber if exists, or DecimalNumber if predelimited (or Alpha otherwise)}
-                NewState := Pat.PType
-              else if Pat.PType in [ST, WS, EL] then
-                NewState := DN
-              else
-               NewState := AL;
-          DD: if Pat.PType in [DN, HN] then                                                {Convert DecimalDigit to Dec/HexNumber if exists, or DecimalNumber if predelimited (or Alpha otherwise)}
-                NewState := Pat.PType
-              else if Pat.PType in [ST, WS, EL] then
-                NewState := DN
-              else
-               NewState := AL;
-          HD: if Pat.PType = HN then                                                       {Convert HexadecimalDigit to HexadecimalNumber if exists (or Alpha otherwise)}
-                NewState := HN
-              else
-               NewState := AL;
-          CD: if Pat.PType in [BN, DN, HN] then NewState := Pat.PType else NewState := AL; {Convert ContinuationDigit to pre-XNumeric if exists (or Alpha otherwise)}
-        end;
+        NewState := ParseState(Pat.PType, PStr[Idx]);
         if NewState = Pat.PType then
           begin {Same as previous state?  Increment content length and store content}
           inc(Pat.Size);
@@ -300,7 +308,7 @@ var
       while Idx < Len do
         begin {For all current data in buffer...}
         {Get data type}
-        DType := CtoPT[PStr[Idx]];
+        DType := ParseState(Pat.PType, PStr[Idx]);
         if DType <> Pat.PType then {Transition to next pattern?}
           begin
           if Pat.MatchIdx < Pat.Size then raise ENoMatch.Create('');    {Abort if previous pattern doesn't match}
