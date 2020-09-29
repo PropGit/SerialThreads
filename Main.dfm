@@ -81,6 +81,13 @@ object Form1: TForm1
     Width = 305
     Height = 2
   end
+  object BuffLabel: TLabel
+    Left = 8
+    Top = 160
+    Width = 31
+    Height = 13
+    Caption = 'Buffer:'
+  end
   object PortEdit: TEdit
     Left = 266
     Top = 13
@@ -101,9 +108,9 @@ object Form1: TForm1
   end
   object RxMemo: TMemo
     Left = 8
-    Top = 160
+    Top = 184
     Width = 308
-    Height = 649
+    Height = 625
     Anchors = [akLeft, akTop, akRight, akBottom]
     Color = clWhite
     ScrollBars = ssVertical
@@ -167,5 +174,14 @@ object Form1: TForm1
     TabOrder = 8
     Text = '0'
     OnExit = BuffSizeEditExit
+  end
+  object BuffProgressBar: TProgressBar
+    Left = 43
+    Top = 160
+    Width = 273
+    Height = 17
+    Min = 0
+    Max = 100
+    TabOrder = 9
   end
 end

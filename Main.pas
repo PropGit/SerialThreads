@@ -4,7 +4,7 @@ interface
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, Serial, StdCtrls, Math, StrUtils, ExtCtrls;
+  Dialogs, Serial, StdCtrls, Math, StrUtils, ExtCtrls, ComCtrls;
 
 type
   {Custom Exceptions}
@@ -40,6 +40,8 @@ type
     MatchingLinesProcessedEdit: TEdit;
     MatchingLinesProcessedLabel: TLabel;
     Bevel1: TBevel;
+    BuffProgressBar: TProgressBar;
+    BuffLabel: TLabel;
     { Event declarations }
     procedure FormCreate(Sender: TObject);
     procedure BuffSizeEditExit(Sender: TObject);
@@ -345,6 +347,8 @@ begin
   PatMatLines := 0;
 //  PatResults := '';
   MatchingLinesProcessedEdit.Text := '0';
+  BuffProgressBar.Max := strtoint(BuffSizeEdit.Text);
+  BuffProgressBar.Position := 0;
   EOTDelay := StrToInt(EndOfTemplateDelayEdit.Text);
   PatDelay := MAXDWORD;
   try
@@ -360,6 +364,8 @@ begin
           CopyMemory(PStr, @RxBuff[RxTail], Len);
           PStr[Len] := char(0);
           RxTail := (RxTail + Len) mod RxBuffSize;
+          BuffProgressBar.Position := Len;
+          Application.ProcessMessages;
           {Parse data}
           if UseTemplate and PatMatch then     {Match data to template pattern?}
             MatchPattern
@@ -370,8 +376,10 @@ begin
             end;
           end
         else    {Else, no data available}
+          begin
           if UseTemplate and (not PatMatch) and (GetTickCount > PatDelay) then FinishPattern;
-        Application.ProcessMessages;
+          Application.ProcessMessages;
+          end;
         Sleep(10);
         end; {while debugging}
     except
