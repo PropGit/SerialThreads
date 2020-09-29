@@ -70,10 +70,16 @@ object Form1: TForm1
   end
   object MatchingLinesProcessedLabel: TLabel
     Left = 8
-    Top = 792
+    Top = 136
     Width = 128
     Height = 13
     Caption = 'Matching Lines Processed:'
+  end
+  object Bevel1: TBevel
+    Left = 8
+    Top = 124
+    Width = 305
+    Height = 2
   end
   object PortEdit: TEdit
     Left = 266
@@ -95,7 +101,7 @@ object Form1: TForm1
   end
   object RxMemo: TMemo
     Left = 8
-    Top = 128
+    Top = 160
     Width = 308
     Height = 649
     Anchors = [akLeft, akTop, akRight, akBottom]
@@ -153,7 +159,7 @@ object Form1: TForm1
   end
   object MatchingLinesProcessedEdit: TEdit
     Left = 141
-    Top = 789
+    Top = 133
     Width = 57
     Height = 21
     Color = clBtnFace

@@ -4,7 +4,7 @@ interface
 
 uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
-  Dialogs, Serial, StdCtrls, Math, StrUtils;
+  Dialogs, Serial, StdCtrls, Math, StrUtils, ExtCtrls;
 
 type
   {Custom Exceptions}
@@ -39,6 +39,7 @@ type
     EndOfTemplateDelayLabel: TLabel;
     MatchingLinesProcessedEdit: TEdit;
     MatchingLinesProcessedLabel: TLabel;
+    Bevel1: TBevel;
     { Event declarations }
     procedure FormCreate(Sender: TObject);
     procedure BuffSizeEditExit(Sender: TObject);
@@ -316,7 +317,7 @@ var
           PatIdx := (PatIdx + 1) mod PatList.Count;                     {to next pattern; wrap to first if necessary}
           if PatIdx = 0 then
             begin
-            inc(PatMatLines, PatLines);                                 {Entire pattern matched}
+            inc(PatMatLines);                                           {Entire pattern matched}
             MatchingLinesProcessedEdit.Text := inttostr(PatMatLines);
             end;
           Pat := PPattern(PatList.Items[PatIdx]);
