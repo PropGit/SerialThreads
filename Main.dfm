@@ -182,6 +182,7 @@ object Form1: TForm1
     Height = 17
     Min = 0
     Max = 100
+    Smooth = True
     TabOrder = 9
   end
 end

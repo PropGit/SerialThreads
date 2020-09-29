@@ -171,7 +171,7 @@ const
 
 
 var
-  Len          : Cardinal;
+  Len, Len2    : Cardinal;
   PStr         : PChar;
   Lines        : TStrings;
   Patch        : Boolean;      {True = must patch previous and current line together}
@@ -356,12 +356,22 @@ begin
     try
       while Debugging do
         begin
-        {Calc length of received data}
-        Len := ifthen(RxHead >= RxTail, RxHead, RxBuffSize) - RxTail;
+        {Calc length of received data (Len + Len2)}
+        Len2 := RxHead; {Snapshot RxHead (the serial thread may be changing it)}
+        if Len2 {RxHead} >= RxTail then
+          begin {Head hasn't crossed border ahead of Tail}
+          Len := Len2-RxTail;
+          Len2 := 0;
+          end
+        else    {Head has crossed border ahead of Tail}
+          Len := RxBuffSize - RxTail;
         if Len > 0 then
           begin {Data available}
+          RxMemo.Lines.Add(inttostr(gettickcount) + ': ' + inttostr(RxHead) + ' - ' + inttostr(RxTail) + ' = ' + inttostr(Len+Len2));
           {Move received data from buffer}
-          CopyMemory(PStr, @RxBuff[RxTail], Len);
+          CopyMemory(@PStr[0], @RxBuff[RxTail], Len);
+          CopyMemory(@PStr[Len], @RxBuff[0], Len2);
+          Len := Len + Len2;
           PStr[Len] := char(0);
           RxTail := (RxTail + Len) mod RxBuffSize;
           BuffProgressBar.Position := Len;
