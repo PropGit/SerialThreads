@@ -11,7 +11,8 @@ type
   ENoMatch = class(Exception);   {Pattern matching failed}
 
   {Pattern types}
-  TPatType = (ST, AL, NM, WS, EL); {STart, ALpha, NuMeric, White Space, End of Line}
+  {STart, White Space, ALpha, ProtoBinary, ProtoHexadecimal, Binary Digit, Decimal Digit, Hexadecimal Digit, Continuation Digit, Binary Numeric, Decimal Numeric, Hexadecimal Numeric, End of Line}
+  TPatType = (ST, WS, AL, PB, PH, BD, DD, HD, CD, BN, DN, HN, EL);
 
   {Pattern entry (used by PatList)}
   PPattern = ^TPattern;
@@ -142,16 +143,19 @@ procedure TForm1.ParseAllRx;
 const
   EOL   = [char(10), char(13)];       {End of line characters}
   {Character to Pattern Type (CtoPT).
-  (WS) White Space [0..9, 11, 12, 14..32] (includes controls), (EL) End of Line [10, 13], (NM) Numeric [48..57], and (AL) Alpha [33..47, 58..255] (includes punctuation)}
+  (WS) White Space [0..9, 11, 12, 14..32] (includes controls), (EL) End of Line [10, 13], (PH) ProtoHex [36], (PB) ProtoBinary [37], (BD) Binary Digit [48..49],
+  (DD) Decimal Digit [50..57], (HD) Hexadecimal Digit [65..70, 97..102], (AL) Alpha [33..35, 38..47, 58..64, 71..94, 96, 103..255] (includes punctuation).
+  ProtoX indicates leading indicator for given numeric type and is converted to that type if pre-delimited by WS or EL, or to AL if not pre-delmited.
+  XDigit indicates base digit and is converted to BN, DN, or HN as appropriate if pre-delimited (and possibly indicated), or to AL if not pre-delimited.}
   CtoPT : array[char] of TPatType =
           {0   1   2   3   4   5   6   7   8   TB  LF  11  12  CR  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31}
           (WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, EL, WS, WS, EL, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS, WS,
           {32  !   "   #   $   %   &   '   (   )   *   +   ,   -   .   /   0   1   2   3   4   5   6   7   8   9   :   ;   <   =   >   ?}
-           WS, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, NM, NM, NM, NM, NM, NM, NM, NM, NM, NM, AL, AL, AL, AL, AL, AL,
+           WS, AL, AL, AL, PH, PB, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, BD, BD, DD, DD, DD, DD, DD, DD, DD, DD, AL, AL, AL, AL, AL, AL,
           {@   A   B   C   D   E   F   G   H   I   J   K   L   M   N   O   P   Q   R   S   T   U   V   W   X   Y   Z   [   \   ]   ^   _}
-           AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL,
+           AL, HD, HD, HD, HD, HD, HD, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, CD,
           {`   a   b   c   d   e   f   g   h   i   j   k   l   m   n   o   p   q   r   s   t   u   v   w   x   y   z   123 |   125 ~   ?}
-           AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL,
+           AL, HD, HD, HD, HD, HD, HD, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL,
           {128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159}
            AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL,
           {160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191}
@@ -161,6 +165,8 @@ const
           {à   á   â   ã   ä   å   æ   ç   è   é   ê   ë   ì   í   î   ï   ð   ñ   ò   ó   ô   õ   ö   ÷   ø   ù   ú   û   ü   ý   þ   8}
            AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL, AL
           );
+
+
 var
   Len          : Cardinal;
   PStr         : PChar;
@@ -209,7 +215,30 @@ var
       while Idx < Len do
         begin {For all current data in buffer...}
         {Get new state}
+        {By starting with raw type...}
         NewState := CtoPT[PStr[Idx]];
+        {... and converting to final type (if necessary)}
+        case NewState of
+          PB: if Pat.PType in [ST, WS, EL] then NewState := BN else NewState := AL;        {Convert ProtoBinary to BinaryNumber if predelimited (or Alpha otherwise)}
+          PH: if Pat.PType in [ST, WS, EL] then NewState := HN else NewState := AL;        {Convert ProtoHexadecimal to HexadecimalNumber if predelimited (or Alpha otherwise)}
+          BD: if Pat.PType in [BN, DN, HN] then                                            {Convert BinaryDigit to XNumber if exists, or DecimalNumber if predelimited (or Alpha otherwise)}
+                NewState := Pat.PType
+              else if Pat.PType in [ST, WS, EL] then
+                NewState := DN
+              else
+               NewState := AL;
+          DD: if Pat.PType in [DN, HN] then                                                {Convert DecimalDigit to Dec/HexNumber if exists, or DecimalNumber if predelimited (or Alpha otherwise)}
+                NewState := Pat.PType
+              else if Pat.PType in [ST, WS, EL] then
+                NewState := DN
+              else
+               NewState := AL;
+          HD: if Pat.PType = HN then                                                       {Convert HexadecimalDigit to HexadecimalNumber if exists (or Alpha otherwise)}
+                NewState := HN
+              else
+               NewState := AL;
+          CD: if Pat.PType in [BN, DN, HN] then NewState := Pat.PType else NewState := AL; {Convert ContinuationDigit to pre-XNumeric if exists (or Alpha otherwise)}
+        end;
         if NewState = Pat.PType then
           begin {Same as previous state?  Increment content length and store content}
           inc(Pat.Size);
@@ -285,7 +314,7 @@ var
           Pat := PPattern(PatList.Items[PatIdx]);
           if DType <> Pat.PType then raise ENoMatch.Create('');         {Abort if current pattern doesn't match}
           end;
-        if (DType = NM) then                                            {If number type; increment match index (accept any number)}
+        if DType in [BN, DN, HN] then                                   {If XNumeric type; increment match index (accept any number)}
           inc(Pat.MatchIdx)
         else                                                            {Else, other types' content must match exactly}
           if (Pat.MatchIdx < Pat.Size) and (PStr[Idx] = Pat.Content[Pat.MatchIdx+1]) then inc(Pat.MatchIdx) else raise ENoMatch.Create('');  {Increment match index or abort if no match}
