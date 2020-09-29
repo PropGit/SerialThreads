@@ -183,6 +183,7 @@ var
 //  PatResults   : String;       {Notice of pattern recording performed}
   PatMatLines  : Cardinal;     {Number of processed matching lines}
   EOTDelay     : Cardinal;     {The end-of-template delay}
+  Time, NewTime: Cardinal;
 
     {----------------}
 
@@ -367,7 +368,9 @@ begin
           Len := RxBuffSize - RxTail;
         if Len > 0 then
           begin {Data available}
-          RxMemo.Lines.Add(inttostr(gettickcount) + ': ' + inttostr(RxHead) + ' - ' + inttostr(RxTail) + ' = ' + inttostr(Len+Len2));
+          NewTime := gettickcount;
+          RxMemo.Lines.Add(inttostr(NewTime-Time) + ': ' + inttostr(RxHead) + ' - ' + inttostr(RxTail) + ' = ' + inttostr(Len+Len2));
+          Time := NewTime;
           {Move received data from buffer}
           CopyMemory(@PStr[0], @RxBuff[RxTail], Len);
           CopyMemory(@PStr[Len], @RxBuff[0], Len2);
